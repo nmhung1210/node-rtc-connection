@@ -336,16 +336,43 @@ class RTCIceTransport extends EventEmitter {
       throw new TypeError('Candidate must be an object');
     }
 
-    // Add to remote candidates list
+    // Ensure candidate is properly formatted
+    // If it's a plain object with a candidate string, parse it
+    let parsedCandidate = candidate;
+    const RTCIceCandidate = require('./RTCIceCandidate');
+    
+    if (!(candidate instanceof RTCIceCandidate)) {
+      // Try to create an RTCIceCandidate to parse and validate
+      try {
+        parsedCandidate = new RTCIceCandidate(candidate);
+      } catch (err) {
+        console.warn('Failed to parse remote candidate:', err.message);
+        // Store the original anyway for compatibility
+        this._remoteCandidates.push(candidate);
+        return;
+      }
+    } else {
+      parsedCandidate = candidate;
+    }
+
+    // Validate that candidate has required properties for connectivity checks
+    if (!parsedCandidate.address || parsedCandidate.port === null || parsedCandidate.port === undefined) {
+      console.warn('Remote candidate missing address or port, skipping connectivity checks');
+      // Store the original candidate for compatibility
+      this._remoteCandidates.push(candidate);
+      return;
+    }
+
+    // Store the original candidate (for getRemoteCandidates compatibility)
     this._remoteCandidates.push(candidate);
 
     // Start connectivity checks if we're in checking state
     if (this._state === RTCIceTransportState.CHECKING && this._localCandidates.length > 0) {
-      // Create pairs for this new remote candidate with all local candidates
+      // Create pairs using the parsed candidate for connectivity checks
       for (const localCandidate of this._localCandidates) {
         const pair = {
           local: localCandidate,
-          remote: candidate,
+          remote: parsedCandidate,
           state: 'waiting'
         };
         this._candidatePairs.push(pair);
@@ -726,10 +753,25 @@ class RTCIceTransport extends EventEmitter {
    * @param {Object} pair - Candidate pair
    * @private
    */
+  /**
+   * Send ICE connectivity check to remote candidate
+   * @param {Object} pair - Candidate pair
+   * @private
+   */
   _sendConnectivityCheck(pair) {
     const socket = this._sockets.get(pair.local.foundation);
     if (!socket || socket.type === 'turn') {
       return; // Skip TURN candidates for now
+    }
+
+    // Validate remote candidate has required properties
+    if (!pair.remote.address || !pair.remote.port) {
+      console.warn('Cannot send connectivity check: remote candidate missing address or port', {
+        address: pair.remote.address,
+        port: pair.remote.port,
+        candidate: pair.remote.candidate
+      });
+      return;
     }
 
     const transactionId = crypto.randomBytes(12);
@@ -742,7 +784,7 @@ class RTCIceTransport extends EventEmitter {
         }
       });
     } catch (err) {
-      console.error(`Error sending connectivity check:`, err);
+      console.error(`Error sending connectivity check to ${pair.remote.address || 'unknown'}:${pair.remote.port || 'unknown'}:`, err);
     }
   }
 
