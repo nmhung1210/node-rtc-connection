@@ -1,0 +1,35 @@
+{
+  "name": "nodertc",
+  "version": "1.0.0",
+  "description": "DataChannel-only WebRTC implementation for Node.js, ported from Chromium's PeerConnection",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node test/run-all-tests.js",
+    "test:watch": "node --test --watch test/*.test.js",
+    "test:unit": "SKIP_INTEGRATION=1 node --test test/*.test.js",
+    "test:integration": "node --test test/integration.test.js",
+    "test:all": "SKIP_INTEGRATION=0 node test/run-all-tests.js",
+    "example": "node examples/real-networking.js",
+    "example:simple": "node examples/simple-datachannel.js"
+  },
+  "keywords": [
+    "webrtc",
+    "datachannel",
+    "peer-connection",
+    "rtc",
+    "p2p",
+    "real-time"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": ""
+  }
+}
