@@ -170,6 +170,52 @@ const config = {
 const pc = new RTCPeerConnection(config);
 ```
 
+### Query String Parameters in Server URLs
+
+The library supports query string parameters in ICE server URLs for advanced configuration:
+
+```javascript
+const config = {
+  iceServers: [
+    // Transport selection
+    {
+      urls: 'turn:turn.example.com:3478?transport=udp',
+      username: 'user',
+      credential: 'pass'
+    },
+    
+    // Multiple parameters
+    {
+      urls: 'turn:turn.example.com:3478?transport=tcp&ttl=86400',
+      username: 'user',
+      credential: 'pass'
+    },
+    
+    // Multiple URLs with different transports
+    {
+      urls: [
+        'turn:turn.cloudflare.com:3478?transport=udp',
+        'turn:turn.cloudflare.com:3478?transport=tcp',
+        'turns:turn.cloudflare.com:5349?transport=tcp'
+      ],
+      username: 'cloudflare_user',
+      credential: 'cloudflare_pass'
+    }
+  ]
+};
+```
+
+**Supported Query Parameters:**
+- `transport=udp|tcp` - Select transport protocol (UDP or TCP)
+- `ttl=<seconds>` - Set allocation lifetime for TURN (default: 600)
+- Custom parameters - Can be added for vendor-specific features
+
+**URL Format Examples:**
+- `stun:host:port` - Basic STUN server
+- `turn:host:port?transport=udp` - TURN with UDP transport
+- `turn:host:port?transport=tcp&custom=value` - Multiple parameters
+- `turns:host:port?transport=tcp` - Secure TURN over TLS
+
 ## Data Channel API
 
 ```javascript

@@ -78,6 +78,7 @@ class STUNClient {
    * @param {string} [options.username] - TURN username
    * @param {string} [options.credential] - TURN password
    * @param {string} [options.transport='udp'] - Transport protocol (udp/tcp)
+   * @param {Object} [options.params={}] - Additional query parameters from URL
    */
   constructor(options) {
     this.server = options.server;
@@ -85,6 +86,7 @@ class STUNClient {
     this.username = options.username;
     this.credential = options.credential;
     this.transport = options.transport || 'udp';
+    this.params = options.params || {};
     
     this.socket = null;
     this.transactions = new Map();

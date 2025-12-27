@@ -550,7 +550,9 @@ class RTCIceTransport extends EventEmitter {
             server: parsed.host,
             port: parsed.port,
             username: server.username,
-            credential: server.credential
+            credential: server.credential,
+            transport: parsed.transport,
+            params: parsed.params
           });
 
           this._stunClients.push(stunClient);
@@ -621,7 +623,8 @@ class RTCIceTransport extends EventEmitter {
             port: parsed.port,
             username: server.username,
             credential: server.credential,
-            transport: parsed.transport || 'udp'
+            transport: parsed.transport,
+            params: parsed.params
           });
 
           this._stunClients.push(turnClient);
@@ -768,10 +771,15 @@ class RTCIceTransport extends EventEmitter {
    * @returns {Object} Parsed URL
    * @private
    */
+  /**
+   * Parse server URL with query string support
+   * @param {string} url - Server URL (e.g., turn:host:port?transport=udp&ttl=86400)
+   * @returns {Object} Parsed server info
+   * @private
+   */
   _parseServerUrl(url) {
-    // Match: (stun|turn|turns)://host:port?transport=udp
-    // Or: (stun|turn|turns):host:port?transport=tcp
-    const match = url.match(/^(stun|turn|turns):\/?\/?([^:?]+):?(\d+)?(\?transport=(\w+))?/);
+    // Match: (stun|turn|turns)://host:port?query or (stun|turn|turns):host:port?query
+    const match = url.match(/^(stun|turn|turns):\/?\/?([^:?]+):?(\d+)?(\?(.+))?/);
     if (!match) {
       throw new Error(`Invalid server URL: ${url}`);
     }
@@ -779,13 +787,27 @@ class RTCIceTransport extends EventEmitter {
     const protocol = match[1];
     const host = match[2];
     const port = match[3];
-    const transport = match[5] || 'udp'; // Default to UDP
+    const queryString = match[5];
+
+    // Parse query parameters
+    const params = {};
+    if (queryString) {
+      queryString.split('&').forEach(param => {
+        const [key, value] = param.split('=');
+        if (key) {
+          // If value is undefined (no = sign), set to true
+          // If value is empty string, keep it as empty string
+          params[key] = value !== undefined ? value : true;
+        }
+      });
+    }
 
     return {
       protocol,
       host,
       port: parseInt(port || (protocol === 'turns' ? '5349' : '3478'), 10),
-      transport
+      transport: params.transport || 'udp', // Default to UDP
+      params // Include all query parameters for future use
     };
   }
 
