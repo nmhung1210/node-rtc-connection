@@ -4,73 +4,252 @@
 
 /// <reference types="node" />
 
-import { EventEmitter } from 'events';
-
-// RTCConfiguration
-export interface RTCIceServer {
-  urls: string | string[];
-  username?: string;
-  credential?: string;
-  credentialType?: 'password' | 'oauth';
+/**
+ * ByteBufferQueue - Efficient byte buffer with O(1) append and O(n) read
+ */
+export class ByteBufferQueue {
+  constructor();
+  readonly size: number;
+  readonly empty: boolean;
+  readInto(buffer: Buffer): number;
+  append(buffer: Buffer): void;
+  clear(): void;
+  read(n: number): Buffer;
+  peek(n?: number): Buffer;
 }
 
-export interface RTCConfiguration {
-  iceServers?: RTCIceServer[];
-  iceTransportPolicy?: 'all' | 'relay';
-  bundlePolicy?: 'balanced' | 'max-compat' | 'max-bundle';
-  rtcpMuxPolicy?: 'negotiate' | 'require';
-  iceCandidatePoolSize?: number;
+/**
+ * RTCError - WebRTC-specific error types
+ */
+export interface RTCErrorInit {
+  errorDetail?: string;
+  sdpLineNumber?: number;
+  httpRequestStatusCode?: number;
+  sctpCauseCode?: number;
+  receivedAlert?: number;
+  sentAlert?: number;
 }
 
-// RTCSessionDescription
-export type RTCSdpType = 'offer' | 'answer' | 'pranswer' | 'rollback';
-
-export interface RTCSessionDescriptionInit {
-  type: RTCSdpType;
-  sdp?: string;
+export interface RTCErrorDetailType {
+  NONE: string;
+  DATA_CHANNEL_FAILURE: string;
+  DTLS_FAILURE: string;
+  FINGERPRINT_FAILURE: string;
+  SCTP_FAILURE: string;
+  SDP_SYNTAX_ERROR: string;
+  HARDWARE_ENCODER_NOT_AVAILABLE: string;
+  HARDWARE_ENCODER_ERROR: string;
+  INVALID_STATE: string;
+  INVALID_MODIFICATION: string;
+  INVALID_ACCESS_ERROR: string;
+  OPERATION_ERROR: string;
 }
 
-export class RTCSessionDescription {
-  constructor(descriptionInitDict?: RTCSessionDescriptionInit);
-  readonly type: RTCSdpType;
-  readonly sdp: string;
-  toJSON(): RTCSessionDescriptionInit;
+export class RTCError extends Error {
+  constructor(init?: RTCErrorInit, message?: string);
+  readonly errorDetail: string;
+  readonly sdpLineNumber: number | null;
+  readonly httpRequestStatusCode: number | null;
+  readonly sctpCauseCode: number | null;
+  readonly receivedAlert: number | null;
+  readonly sentAlert: number | null;
+  toJSON(): object;
+  static fromNative(nativeError: any): RTCError;
+  static DetailType: RTCErrorDetailType;
 }
 
-// RTCIceCandidate
-export type RTCIceCandidateType = 'host' | 'srflx' | 'prflx' | 'relay';
-export type RTCIceProtocol = 'udp' | 'tcp';
-export type RTCIceTcpCandidateType = 'active' | 'passive' | 'so';
-
+/**
+ * RTCIceCandidate - ICE candidate representation
+ */
 export interface RTCIceCandidateInit {
   candidate?: string;
   sdpMid?: string | null;
   sdpMLineIndex?: number | null;
-  usernameFragment?: string | null;
+  usernameFragment?: string;
 }
 
 export class RTCIceCandidate {
-  constructor(candidateInitDict?: RTCIceCandidateInit);
+  constructor(candidateInit?: RTCIceCandidateInit);
   readonly candidate: string;
   readonly sdpMid: string | null;
   readonly sdpMLineIndex: number | null;
+  readonly usernameFragment: string | null;
   readonly foundation: string | null;
-  readonly component: 'rtp' | 'rtcp' | null;
+  readonly component: string | null;
   readonly priority: number | null;
   readonly address: string | null;
-  readonly protocol: RTCIceProtocol | null;
+  readonly protocol: string | null;
   readonly port: number | null;
-  readonly type: RTCIceCandidateType | null;
-  readonly tcpType: RTCIceTcpCandidateType | null;
+  readonly type: string | null;
+  readonly tcpType: string | null;
   readonly relatedAddress: string | null;
   readonly relatedPort: number | null;
-  readonly usernameFragment: string | null;
-  toJSON(): RTCIceCandidateInit;
+  toJSON(): object;
+  static fromString(candidateStr: string, sdpMid?: string | null, sdpMLineIndex?: number | null): RTCIceCandidate;
+  static isValid(candidateStr: string): boolean;
 }
 
-// RTCDataChannel
-export type RTCDataChannelState = 'connecting' | 'open' | 'closing' | 'closed';
-export type RTCBinaryType = 'blob' | 'arraybuffer';
+/**
+ * RTCIceTransport - ICE transport layer
+ */
+export enum RTCIceRole {
+  CONTROLLING = 'controlling',
+  CONTROLLED = 'controlled'
+}
+
+export enum RTCIceTransportState {
+  NEW = 'new',
+  CHECKING = 'checking',
+  CONNECTED = 'connected',
+  COMPLETED = 'completed',
+  DISCONNECTED = 'disconnected',
+  FAILED = 'failed',
+  CLOSED = 'closed'
+}
+
+export enum RTCIceGatheringState {
+  NEW = 'new',
+  GATHERING = 'gathering',
+  COMPLETE = 'complete'
+}
+
+export interface RTCIceParameters {
+  usernameFragment: string;
+  password: string;
+}
+
+export interface RTCIceCandidatePair {
+  local: RTCIceCandidate;
+  remote: RTCIceCandidate;
+}
+
+export interface RTCIceGatherOptions {
+  gatherPolicy?: 'all' | 'relay';
+  iceServers?: Array<any>;
+}
+
+import { EventEmitter } from 'events';
+
+export class RTCIceTransport extends EventEmitter {
+  constructor();
+  readonly role: string | null;
+  readonly state: string;
+  readonly gatheringState: string;
+  getLocalCandidates(): RTCIceCandidate[];
+  getRemoteCandidates(): RTCIceCandidate[];
+  getSelectedCandidatePair(): RTCIceCandidatePair | null;
+  getLocalParameters(): RTCIceParameters | null;
+  getRemoteParameters(): RTCIceParameters | null;
+  gather(options?: RTCIceGatherOptions): void;
+  start(remoteParameters: RTCIceParameters, role: string): void;
+  stop(): void;
+  addRemoteCandidate(candidate: RTCIceCandidate): void;
+  isClosed(): boolean;
+  isStarted(): boolean;
+  
+  on(event: 'statechange', listener: () => void): this;
+  on(event: 'gatheringstatechange', listener: () => void): this;
+  on(event: 'selectedcandidatepairchange', listener: () => void): this;
+  on(event: 'icecandidate', listener: (candidate: RTCIceCandidate) => void): this;
+}
+
+/**
+ * RTCCertificate - DTLS certificate
+ */
+export interface RTCDtlsFingerprint {
+  algorithm: string;
+  value: string;
+}
+
+export interface RTCCertificatePEM {
+  pemPrivateKey: string;
+  pemCertificate: string;
+}
+
+export interface RTCCertificateOptions {
+  name?: string;
+  expires?: number;
+  days?: number;
+  hash?: string;
+}
+
+export interface RTCKeyParams {
+  type: 'RSA' | 'ECDSA';
+  rsaModulusLength?: number;
+  namedCurve?: string;
+}
+
+export class RTCCertificate {
+  readonly expires: number;
+  getFingerprints(): RTCDtlsFingerprint[];
+  getPrivateKey(): string;
+  getPublicKey(): string;
+  toPEM(): RTCCertificatePEM;
+  isExpired(): boolean;
+  
+  static generateCertificate(options?: RTCCertificateOptions): Promise<RTCCertificate>;
+  static fromPEM(pemPrivateKey: string, pemCertificate: string, expires?: number): RTCCertificate;
+  static isSupportedKeyParams(keyParams: RTCKeyParams): boolean;
+}
+
+/**
+ * RTCDtlsTransport - DTLS transport layer
+ */
+export enum RTCDtlsTransportState {
+  NEW = 'new',
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected',
+  CLOSED = 'closed',
+  FAILED = 'failed'
+}
+
+export class RTCDtlsTransport extends EventEmitter {
+  constructor(iceTransport: RTCIceTransport);
+  readonly iceTransport: RTCIceTransport;
+  readonly state: string;
+  getRemoteCertificates(): ArrayBuffer[];
+  close(): void;
+  isClosed(): boolean;
+  
+  on(event: 'statechange', listener: () => void): this;
+  on(event: 'error', listener: (error: Error) => void): this;
+}
+
+/**
+ * RTCSctpTransport - SCTP transport layer
+ */
+export enum RTCSctpTransportState {
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected',
+  CLOSED = 'closed'
+}
+
+export interface RTCSctpTransportOptions {
+  maxMessageSize?: number;
+  maxChannels?: number;
+}
+
+export class RTCSctpTransport extends EventEmitter {
+  constructor(dtlsTransport: RTCDtlsTransport, options?: RTCSctpTransportOptions);
+  readonly transport: RTCDtlsTransport;
+  readonly state: string;
+  readonly maxMessageSize: number;
+  readonly maxChannels: number | null;
+  close(): void;
+  isClosed(): boolean;
+  
+  on(event: 'statechange', listener: () => void): this;
+}
+
+/**
+ * RTCDataChannel - Bidirectional data channel
+ */
+export enum RTCDataChannelState {
+  CONNECTING = 'connecting',
+  OPEN = 'open',
+  CLOSING = 'closing',
+  CLOSED = 'closed'
+}
 
 export interface RTCDataChannelInit {
   ordered?: boolean;
@@ -81,15 +260,12 @@ export interface RTCDataChannelInit {
   id?: number;
 }
 
-export interface RTCDataChannelEventMap {
-  open: Event;
-  message: MessageEvent;
-  error: RTCErrorEvent;
-  close: Event;
-  bufferedamountlow: Event;
+export interface RTCDataChannelMessageEvent {
+  data: string | Buffer | ArrayBuffer;
 }
 
 export class RTCDataChannel extends EventEmitter {
+  constructor(label: string, init?: RTCDataChannelInit);
   readonly label: string;
   readonly ordered: boolean;
   readonly maxPacketLifeTime: number | null;
@@ -97,133 +273,128 @@ export class RTCDataChannel extends EventEmitter {
   readonly protocol: string;
   readonly negotiated: boolean;
   readonly id: number | null;
-  readonly readyState: RTCDataChannelState;
+  readonly readyState: string;
   readonly bufferedAmount: number;
   bufferedAmountLowThreshold: number;
-  binaryType: RTCBinaryType;
-
-  close(): void;
+  binaryType: 'arraybuffer' | 'blob';
+  readonly reliable: boolean;
+  
   send(data: string | ArrayBuffer | ArrayBufferView): void;
-
-  on<K extends keyof RTCDataChannelEventMap>(event: K, listener: (ev: RTCDataChannelEventMap[K]) => void): this;
-  once<K extends keyof RTCDataChannelEventMap>(event: K, listener: (ev: RTCDataChannelEventMap[K]) => void): this;
-  off<K extends keyof RTCDataChannelEventMap>(event: K, listener: (ev: RTCDataChannelEventMap[K]) => void): this;
-  emit<K extends keyof RTCDataChannelEventMap>(event: K, ...args: any[]): boolean;
+  close(): void;
+  
+  on(event: 'open', listener: () => void): this;
+  on(event: 'message', listener: (event: RTCDataChannelMessageEvent) => void): this;
+  on(event: 'bufferedamountlow', listener: () => void): this;
+  on(event: 'error', listener: (error: Error) => void): this;
+  on(event: 'closing', listener: () => void): this;
+  on(event: 'close', listener: () => void): this;
 }
 
-// RTCPeerConnection
-export type RTCSignalingState = 'stable' | 'have-local-offer' | 'have-remote-offer' | 
-  'have-local-pranswer' | 'have-remote-pranswer' | 'closed';
-
-export type RTCIceGatheringState = 'new' | 'gathering' | 'complete';
-
-export type RTCIceConnectionState = 'new' | 'checking' | 'connected' | 'completed' | 
-  'failed' | 'disconnected' | 'closed';
-
-export type RTCPeerConnectionState = 'new' | 'connecting' | 'connected' | 
-  'disconnected' | 'failed' | 'closed';
-
-export interface RTCOfferOptions {
-  iceRestart?: boolean;
-  offerToReceiveAudio?: boolean;
-  offerToReceiveVideo?: boolean;
+/**
+ * RTCSessionDescription - SDP representation
+ */
+export enum RTCSdpType {
+  OFFER = 'offer',
+  PRANSWER = 'pranswer',
+  ANSWER = 'answer',
+  ROLLBACK = 'rollback'
 }
 
-export interface RTCAnswerOptions {
-  iceRestart?: boolean;
+export interface RTCSessionDescriptionInit {
+  type?: string;
+  sdp?: string;
 }
 
-export interface RTCDataChannelEventInit {
-  channel: RTCDataChannel;
+export class RTCSessionDescription {
+  constructor(init?: RTCSessionDescriptionInit);
+  type: string | null;
+  sdp: string | null;
+  toJSON(): RTCSessionDescriptionInit;
 }
 
-export class RTCDataChannelEvent extends Event {
-  constructor(type: string, eventInitDict: RTCDataChannelEventInit);
-  readonly channel: RTCDataChannel;
+/**
+ * RTCPeerConnection - Main peer connection class
+ */
+export enum RTCSignalingState {
+  STABLE = 'stable',
+  HAVE_LOCAL_OFFER = 'have-local-offer',
+  HAVE_REMOTE_OFFER = 'have-remote-offer',
+  HAVE_LOCAL_PRANSWER = 'have-local-pranswer',
+  HAVE_REMOTE_PRANSWER = 'have-remote-pranswer',
+  CLOSED = 'closed'
 }
 
-export interface RTCPeerConnectionIceEventInit {
-  candidate?: RTCIceCandidate | null;
-  url?: string | null;
+export enum RTCIceGatheringState {
+  NEW = 'new',
+  GATHERING = 'gathering',
+  COMPLETE = 'complete'
 }
 
-export class RTCPeerConnectionIceEvent extends Event {
-  constructor(type: string, eventInitDict?: RTCPeerConnectionIceEventInit);
-  readonly candidate: RTCIceCandidate | null;
-  readonly url: string | null;
+export enum RTCPeerConnectionState {
+  NEW = 'new',
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected',
+  DISCONNECTED = 'disconnected',
+  FAILED = 'failed',
+  CLOSED = 'closed'
 }
 
-export interface RTCPeerConnectionEventMap {
-  connectionstatechange: Event;
-  datachannel: RTCDataChannelEvent;
-  icecandidate: RTCPeerConnectionIceEvent;
-  icecandidateerror: Event;
-  iceconnectionstatechange: Event;
-  icegatheringstatechange: Event;
-  negotiationneeded: Event;
-  signalingstatechange: Event;
+export interface RTCIceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
+export interface RTCConfiguration {
+  iceServers?: RTCIceServer[];
+  iceTransportPolicy?: 'all' | 'relay';
+  bundlePolicy?: 'balanced' | 'max-compat' | 'max-bundle';
+}
+
+export interface RTCIceCandidateInit {
+  candidate?: string;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+  usernameFragment?: string | null;
 }
 
 export class RTCPeerConnection extends EventEmitter {
-  constructor(configuration?: RTCConfiguration, factory?: NativePeerConnectionFactory);
-
-  readonly signalingState: RTCSignalingState;
-  readonly iceGatheringState: RTCIceGatheringState;
-  readonly iceConnectionState: RTCIceConnectionState;
-  readonly connectionState: RTCPeerConnectionState;
+  constructor(configuration?: RTCConfiguration);
+  
+  readonly signalingState: string;
+  readonly iceGatheringState: string;
+  readonly iceConnectionState: string;
+  readonly connectionState: string;
   readonly localDescription: RTCSessionDescription | null;
   readonly remoteDescription: RTCSessionDescription | null;
-  readonly pendingLocalDescription: RTCSessionDescription | null;
-  readonly pendingRemoteDescription: RTCSessionDescription | null;
   readonly currentLocalDescription: RTCSessionDescription | null;
+  readonly pendingLocalDescription: RTCSessionDescription | null;
   readonly currentRemoteDescription: RTCSessionDescription | null;
-
-  createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescription>;
-  createAnswer(options?: RTCAnswerOptions): Promise<RTCSessionDescription>;
-  setLocalDescription(description: RTCSessionDescriptionInit): Promise<void>;
-  setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void>;
-  addIceCandidate(candidate?: RTCIceCandidateInit | null): Promise<void>;
-  createDataChannel(label: string, dataChannelDict?: RTCDataChannelInit): RTCDataChannel;
+  readonly pendingRemoteDescription: RTCSessionDescription | null;
+  readonly canTrickleIceCandidates: boolean;
+  readonly sctp: RTCSctpTransport | null;
+  
+  createDataChannel(label: string, options?: RTCDataChannelInit): RTCDataChannel;
+  createOffer(options?: any): Promise<RTCSessionDescription>;
+  createAnswer(options?: any): Promise<RTCSessionDescription>;
+  setLocalDescription(description?: RTCSessionDescription): Promise<void>;
+  setRemoteDescription(description: RTCSessionDescription): Promise<void>;
+  addIceCandidate(candidate?: RTCIceCandidateInit): Promise<void>;
   getConfiguration(): RTCConfiguration;
   setConfiguration(configuration: RTCConfiguration): void;
   close(): void;
-  getStats(): Promise<any>;
-
-  on<K extends keyof RTCPeerConnectionEventMap>(event: K, listener: (ev: RTCPeerConnectionEventMap[K]) => void): this;
-  once<K extends keyof RTCPeerConnectionEventMap>(event: K, listener: (ev: RTCPeerConnectionEventMap[K]) => void): this;
-  off<K extends keyof RTCPeerConnectionEventMap>(event: K, listener: (ev: RTCPeerConnectionEventMap[K]) => void): this;
-  emit<K extends keyof RTCPeerConnectionEventMap>(event: K, ...args: any[]): boolean;
+  
+  on(event: 'negotiationneeded', listener: () => void): this;
+  on(event: 'icecandidate', listener: (event: { candidate: RTCIceCandidateInit | null }) => void): this;
+  on(event: 'icegatheringstatechange', listener: () => void): this;
+  on(event: 'iceconnectionstatechange', listener: () => void): this;
+  on(event: 'connectionstatechange', listener: () => void): this;
+  on(event: 'signalingstatechange', listener: () => void): this;
+  on(event: 'datachannel', listener: (event: { channel: RTCDataChannel }) => void): this;
 }
 
-// RTCError
-export class RTCError extends Error {
-  constructor(message: string, errorDetail?: string);
-  readonly errorDetail: string;
-}
+/**
+ * Package version
+ */
+export const version: string;
 
-export interface RTCErrorEventInit {
-  error: RTCError;
-}
-
-export class RTCErrorEvent extends Event {
-  constructor(type: string, eventInitDict: RTCErrorEventInit);
-  readonly error: RTCError;
-}
-
-// NativePeerConnectionFactory
-export class NativePeerConnectionFactory {
-  constructor();
-  initialize(): void;
-  createPeerConnection(configuration: RTCConfiguration): any;
-  dispose(): void;
-}
-
-// Factory functions
-export function createPeerConnection(configuration?: RTCConfiguration): RTCPeerConnection;
-export function createPeerConnectionWithFactory(configuration: RTCConfiguration, factory: NativePeerConnectionFactory): RTCPeerConnection;
-
-// Alias
-export { RTCPeerConnection as RTCConnection };
-
-// Default factory instance
-export const defaultFactory: NativePeerConnectionFactory;

@@ -4,18 +4,19 @@
  */
 
 const { createPeerConnection } = require('../src');
+const fs = require('fs');
+const path = require('path');
+
+// Load peer configuration
+const configPath = path.join(__dirname, 'peer.config.json');
+const peerConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
 console.log('=== NodeRTC Real Networking Example ===\n');
 console.log('Using real TCP connections for DataChannel communication\n');
 
-// Create two peer connections
-const pc1 = createPeerConnection({
-  iceServers: []  // No STUN server needed for local networking
-});
-
-const pc2 = createPeerConnection({
-  iceServers: []
-});
+// Create two peer connections using local config (no STUN needed for local)
+const pc1 = createPeerConnection(peerConfig.localDemo);
+const pc2 = createPeerConnection(peerConfig.localDemo);
 
 console.log('✓ Created two peer connections\n');
 

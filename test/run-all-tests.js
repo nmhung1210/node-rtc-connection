@@ -1,40 +1,24 @@
-#!/usr/bin/env node
 /**
- * Test runner for NodeRTC
- * Runs all test files and provides a summary
+ * Simple test runner that runs all tests in the test directory
  */
 
 const { run } = require('node:test');
-const { spec: specReporter } = require('node:test/reporters');
-const fs = require('fs');
+const { spec } = require('node:test/reporters');
 const path = require('path');
+const fs = require('fs');
 
-async function runTests() {
-  const testDir = __dirname;
-  const testFiles = fs.readdirSync(testDir)
-    .filter(file => file.endsWith('.test.js'))
-    .map(file => path.join(testDir, file));
+// Get all test files
+const testDir = __dirname;
+const testFiles = fs.readdirSync(testDir)
+  .filter(file => file.endsWith('.test.js'))
+  .map(file => path.join(testDir, file));
 
-  // Skip slow integration tests by default
-  process.env.SKIP_INTEGRATION = '1';
+console.log(`Running ${testFiles.length} test files...\n`);
 
-  console.log('🧪 Running NodeRTC Test Suite\n');
-  console.log(`Found ${testFiles.length} test files:\n`);
-  testFiles.forEach(file => {
-    console.log(`  - ${path.basename(file)}`);
-  });
-  console.log('\n' + '='.repeat(60) + '\n');
-
-  const stream = run({
-    files: testFiles,
-    concurrency: false,
-    timeout: 15000 // Increase timeout for integration tests
-  });
-
-  stream.compose(specReporter).pipe(process.stdout);
-}
-
-runTests().catch(err => {
-  console.error('Test runner failed:', err);
-  process.exit(1);
-});
+// Run tests
+run({ files: testFiles })
+  .on('test:fail', () => {
+    process.exitCode = 1;
+  })
+  .compose(spec)
+  .pipe(process.stdout);

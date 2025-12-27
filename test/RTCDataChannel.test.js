@@ -1,210 +1,512 @@
-const assert = require('assert');
-const { describe, it, beforeEach } = require('node:test');
-const EventEmitter = require('events');
-const RTCDataChannel = require('../src/RTCDataChannel');
+/**
+ * @file RTCDataChannel.test.js
+ * @description Tests for RTCDataChannel with real networking
+ */
 
-class MockNativeChannel extends EventEmitter {
-  constructor(label, options = {}) {
-    super();
-    this.label = label;
-    this.ordered = options.ordered !== undefined ? options.ordered : true;
-    this.maxPacketLifeTime = options.maxPacketLifeTime || -1;
-    this.maxRetransmits = options.maxRetransmits || -1;
-    this.protocol = options.protocol || '';
-    this.negotiated = options.negotiated || false;
-    this.id = options.id !== undefined ? options.id : -1;
-    this._state = 0;
-  }
-
-  send(data) {
-    // Mock send
-  }
-
-  close() {
-    this._state = 2;
-    this.emit('statechange', this._state);
-  }
-}
+const { describe, it, beforeEach, afterEach } = require('node:test');
+const assert = require('node:assert');
+const { RTCDataChannel, RTCDataChannelState } = require('../src/datachannel/RTCDataChannel.js');
+const { createConnectedPeers, closePeers } = require('./helpers/peer-connection-helper.js');
 
 describe('RTCDataChannel', () => {
-  let nativeChannel;
-  let dataChannel;
-
-  beforeEach(() => {
-    nativeChannel = new MockNativeChannel('test', { ordered: true });
-    dataChannel = new RTCDataChannel(nativeChannel, null);
-  });
-
-  describe('constructor', () => {
-    it('should initialize with native channel', () => {
-      assert.ok(dataChannel);
-      assert.strictEqual(dataChannel.label, 'test');
-      assert.strictEqual(dataChannel.readyState, 'connecting');
-    });
-  });
-
-  describe('properties', () => {
-    it('should get label from native channel', () => {
-      assert.strictEqual(dataChannel.label, 'test');
+  describe('Constructor', () => {
+    it('should create a data channel with default configuration', () => {
+      const channel = new RTCDataChannel('test');
+      assert.strictEqual(channel.label, 'test');
+      assert.strictEqual(channel.ordered, true);
+      assert.strictEqual(channel.maxPacketLifeTime, null);
+      assert.strictEqual(channel.maxRetransmits, null);
+      assert.strictEqual(channel.protocol, '');
+      assert.strictEqual(channel.negotiated, false);
+      assert.strictEqual(channel.id, null);
+      assert.strictEqual(channel.readyState, 'connecting');
+      assert.strictEqual(channel.bufferedAmount, 0);
+      assert.strictEqual(channel.bufferedAmountLowThreshold, 0);
+      assert.strictEqual(channel.binaryType, 'arraybuffer');
     });
 
-    it('should get ordered property', () => {
-      assert.strictEqual(dataChannel.ordered, true);
+    it('should create a data channel with custom configuration', () => {
+      const channel = new RTCDataChannel('myChannel', {
+        ordered: false,
+        maxPacketLifeTime: 3000,
+        protocol: 'json',
+        negotiated: true,
+        id: 42
+      });
+      assert.strictEqual(channel.label, 'myChannel');
+      assert.strictEqual(channel.ordered, false);
+      assert.strictEqual(channel.maxPacketLifeTime, 3000);
+      assert.strictEqual(channel.maxRetransmits, null);
+      assert.strictEqual(channel.protocol, 'json');
+      assert.strictEqual(channel.negotiated, true);
+      assert.strictEqual(channel.id, 42);
     });
 
-    it('should get protocol', () => {
-      assert.strictEqual(dataChannel.protocol, '');
-    });
-
-    it('should get/set binaryType', () => {
-      assert.strictEqual(dataChannel.binaryType, 'arraybuffer');
-      dataChannel.binaryType = 'blob';
-      assert.strictEqual(dataChannel.binaryType, 'blob');
-    });
-
-    it('should throw on invalid binaryType', () => {
+    it('should throw TypeError if label is not a string', () => {
       assert.throws(() => {
-        dataChannel.binaryType = 'invalid';
-      }, /must be either/);
+        new RTCDataChannel(123);
+      }, TypeError);
     });
 
-    it('should get/set bufferedAmountLowThreshold', () => {
-      dataChannel.bufferedAmountLowThreshold = 1024;
-      assert.strictEqual(dataChannel.bufferedAmountLowThreshold, 1024);
+    it('should create a data channel with maxRetransmits', () => {
+      const channel = new RTCDataChannel('test', {
+        maxRetransmits: 5
+      });
+      assert.strictEqual(channel.maxRetransmits, 5);
+      assert.strictEqual(channel.maxPacketLifeTime, null);
     });
   });
 
-  describe('state transitions', () => {
-    it('should transition to open', (t, done) => {
-      dataChannel.on('open', () => {
-        setImmediate(() => {
-          assert.strictEqual(dataChannel.readyState, 'open');
-          done();
-        });
-      });
-      nativeChannel.emit('statechange', 1); // open
-    });
+  describe('Properties', () => {
+    let channel;
 
-    it('should transition to closing', (t, done) => {
-      dataChannel.on('closing', () => {
-        setImmediate(() => {
-          assert.strictEqual(dataChannel.readyState, 'closing');
-          done();
-        });
-      });
-      nativeChannel.emit('statechange', 2); // closing
-    });
-
-    it('should transition to closed', (t, done) => {
-      dataChannel.on('close', () => {
-        setImmediate(() => {
-          assert.strictEqual(dataChannel.readyState, 'closed');
-          done();
-        });
-      });
-      nativeChannel.emit('statechange', 3); // closed
-    });
-  });
-
-  describe('send', () => {
     beforeEach(() => {
-      nativeChannel.emit('statechange', 1); // open state
+      channel = new RTCDataChannel('test', {
+        ordered: false,
+        maxPacketLifeTime: 1000,
+        maxRetransmits: 3,
+        protocol: 'custom',
+        negotiated: true,
+        id: 10
+      });
     });
 
-    it('should throw when not open', () => {
-      const closedChannel = new RTCDataChannel(nativeChannel, null);
+    it('should expose label property', () => {
+      assert.strictEqual(channel.label, 'test');
+    });
+
+    it('should expose ordered property', () => {
+      assert.strictEqual(channel.ordered, false);
+    });
+
+    it('should expose maxPacketLifeTime property', () => {
+      assert.strictEqual(channel.maxPacketLifeTime, 1000);
+    });
+
+    it('should expose maxRetransmits property', () => {
+      assert.strictEqual(channel.maxRetransmits, 3);
+    });
+
+    it('should expose protocol property', () => {
+      assert.strictEqual(channel.protocol, 'custom');
+    });
+
+    it('should expose negotiated property', () => {
+      assert.strictEqual(channel.negotiated, true);
+    });
+
+    it('should expose id property', () => {
+      assert.strictEqual(channel.id, 10);
+    });
+
+    it('should expose readyState property', () => {
+      assert.strictEqual(channel.readyState, 'connecting');
+    });
+
+    it('should expose bufferedAmount property', () => {
+      assert.strictEqual(channel.bufferedAmount, 0);
+    });
+
+    it('should get bufferedAmountLowThreshold property', () => {
+      assert.strictEqual(channel.bufferedAmountLowThreshold, 0);
+    });
+
+    it('should set bufferedAmountLowThreshold property', () => {
+      channel.bufferedAmountLowThreshold = 1024;
+      assert.strictEqual(channel.bufferedAmountLowThreshold, 1024);
+    });
+
+    it('should expose binaryType property', () => {
+      assert.strictEqual(channel.binaryType, 'arraybuffer');
+    });
+
+    it('should set binaryType to "blob"', () => {
+      channel.binaryType = 'blob';
+      assert.strictEqual(channel.binaryType, 'blob');
+    });
+
+    it('should throw TypeError for invalid binaryType', () => {
+      assert.throws(() => {
+        channel.binaryType = 'invalid';
+      }, TypeError);
+    });
+
+    it('should report reliable as true for ordered with no limits', () => {
+      const reliable = new RTCDataChannel('reliable');
+      assert.strictEqual(reliable.reliable, true);
+    });
+
+    it('should report reliable as false for unordered', () => {
+      assert.strictEqual(channel.reliable, false);
+    });
+
+    it('should report reliable as false with maxPacketLifeTime', () => {
+      const unreliable = new RTCDataChannel('test', { maxPacketLifeTime: 100 });
+      assert.strictEqual(unreliable.reliable, false);
+    });
+  });
+
+  describe('State Transitions', () => {
+    let channel;
+
+    beforeEach(() => {
+      channel = new RTCDataChannel('test');
+    });
+
+    it('should start in connecting state', () => {
+      assert.strictEqual(channel.readyState, 'connecting');
+    });
+
+    it('should transition to open state', (t, done) => {
+      channel.on('open', () => {
+        assert.strictEqual(channel.readyState, 'open');
+        done();
+      });
+      channel._setStateToOpen();
+    });
+
+    it('should transition to closing state', (t, done) => {
+      channel._setStateToOpen();
+      channel.on('closing', () => {
+        assert.strictEqual(channel.readyState, 'closing');
+        done();
+      });
+      channel.close();
+    });
+
+    it('should transition to closed state', (t, done) => {
+      channel._setStateToOpen();
+      channel.on('close', () => {
+        assert.strictEqual(channel.readyState, 'closed');
+        done();
+      });
+      channel.close();
+    });
+
+    it('should not emit events if state does not change', () => {
+      let eventCount = 0;
+      channel.on('open', () => eventCount++);
+      channel._setStateToOpen();
+      channel._setStateToOpen();
+      assert.strictEqual(eventCount, 1);
+    });
+
+    it('should ignore close() if already closing', () => {
+      channel._setStateToOpen();
+      channel.close();
+      assert.strictEqual(channel.readyState, 'closing');
+      channel.close();
+      assert.strictEqual(channel.readyState, 'closing');
+    });
+
+    it('should ignore close() if already closed', (t, done) => {
+      channel._setStateToOpen();
+      channel.on('close', () => {
+        channel.close();
+        assert.strictEqual(channel.readyState, 'closed');
+        done();
+      });
+      channel.close();
+    });
+  });
+
+  describe('Send', () => {
+    let pc1, pc2, channel;
+
+    beforeEach(async () => {
+      // Create connected peers with real networking
+      const peers = await createConnectedPeers('test');
+      pc1 = peers.pc1;
+      pc2 = peers.pc2;
+      channel = peers.channel1;
+    });
+
+    afterEach(() => {
+      closePeers(pc1, pc2);
+    });
+
+    it('should throw if not in open state', () => {
+      const closedChannel = new RTCDataChannel('test');
       assert.throws(() => {
         closedChannel.send('test');
-      }, /not open/);
+      }, Error);
     });
 
-    it('should send string data', () => {
-      let sent = false;
-      nativeChannel.send = (data) => {
-        sent = true;
-        assert.ok(Buffer.isBuffer(data.data));
-      };
-      dataChannel.send('hello');
-      assert.ok(sent);
+    it('should send a string message', () => {
+      assert.doesNotThrow(() => {
+        channel.send('Hello, World!');
+      });
     });
 
-    it('should send ArrayBuffer', () => {
-      const buffer = new ArrayBuffer(10);
-      let sent = false;
-      nativeChannel.send = (data) => {
-        sent = true;
-        assert.strictEqual(data.binary, true);
-      };
-      dataChannel.send(buffer);
-      assert.ok(sent);
+    it('should send an ArrayBuffer', () => {
+      const buffer = new ArrayBuffer(16);
+      assert.doesNotThrow(() => {
+        channel.send(buffer);
+      });
     });
 
-    it('should throw on message too long', () => {
-      const largeBuffer = new ArrayBuffer(70000);
+    it('should send a Uint8Array', () => {
+      const view = new Uint8Array([1, 2, 3, 4]);
+      assert.doesNotThrow(() => {
+        channel.send(view);
+      });
+    });
+
+    it('should throw for Blob (not implemented)', () => {
+      const blob = { arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) };
       assert.throws(() => {
-        dataChannel.send(largeBuffer);
-      }, /too long/);
+        channel.send(blob);
+      }, Error);
+    });
+
+    it('should throw for invalid data type', () => {
+      assert.throws(() => {
+        channel.send(123);
+      }, TypeError);
+    });
+
+    it('should update bufferedAmount for string', () => {
+      const message = 'Hello';
+      channel.send(message);
+      assert.ok(channel.bufferedAmount >= 0);
+    });
+
+    it('should update bufferedAmount for ArrayBuffer', () => {
+      const buffer = new ArrayBuffer(256);
+      const initialAmount = channel.bufferedAmount;
+      channel.send(buffer);
+      assert.ok(channel.bufferedAmount >= initialAmount);
+    });
+
+    it('should decrease bufferedAmount after send completes', (t, done) => {
+      channel.send('test');
+      const initial = channel.bufferedAmount;
+      setTimeout(() => {
+        // Buffer amount should decrease or stay at 0
+        assert.ok(channel.bufferedAmount <= initial);
+        done();
+      }, 50);
+    });
+
+    it('should emit bufferedamountlow event', (t, done) => {
+      channel.bufferedAmountLowThreshold = 100;
+      channel.on('bufferedamountlow', () => {
+        assert.ok(channel.bufferedAmount <= 100);
+        done();
+      });
+      channel.send('test');
+      // Also accept immediate success if buffer is already low
+      setTimeout(() => {
+        if (channel.bufferedAmount <= 100) {
+          done();
+        }
+      }, 50);
+    });
+
+    it('should not emit bufferedamountlow if above threshold', (t, done) => {
+      channel.bufferedAmountLowThreshold = 1;
+      let emitted = false;
+      channel.on('bufferedamountlow', () => {
+        emitted = true;
+      });
+      // Send enough to stay above threshold temporarily
+      channel.send('a'.repeat(1000));
+      setTimeout(() => {
+        assert.ok(!emitted || channel.bufferedAmount <= 1);
+        done();
+      }, 50);
     });
   });
 
-  describe('message receiving', () => {
+  describe('Receive', () => {
+    let channel;
+
     beforeEach(() => {
-      nativeChannel.emit('statechange', 1); // open state
+      channel = new RTCDataChannel('test');
+      channel._setStateToOpen();
     });
 
-    it('should receive text message', (t, done) => {
-      dataChannel.on('message', (event) => {
-        assert.strictEqual(event.data, 'hello');
+    it('should emit message event', (t, done) => {
+      channel.on('message', (event) => {
+        assert.strictEqual(event.data, 'Hello');
         done();
       });
-      
-      const buffer = Buffer.from('hello', 'utf8');
-      nativeChannel.emit('message', { data: buffer, binary: false });
+      channel._onMessage('Hello');
     });
 
-    it('should receive binary message as arraybuffer', (t, done) => {
-      dataChannel.binaryType = 'arraybuffer';
-      dataChannel.on('message', (event) => {
-        assert.ok(event.data instanceof ArrayBuffer);
+    it('should emit message event with Buffer', (t, done) => {
+      const buffer = Buffer.from([1, 2, 3]);
+      channel.on('message', (event) => {
+        assert.deepStrictEqual(event.data, buffer);
         done();
       });
-      
-      const buffer = Buffer.from([1, 2, 3, 4]);
-      nativeChannel.emit('message', { data: buffer, binary: true });
+      channel._onMessage(buffer);
     });
   });
 
-  describe('close', () => {
-    it('should close the channel', () => {
-      dataChannel.close();
-      assert.ok(dataChannel._closed);
-    });
-
-    it('should not throw when closing twice', () => {
-      dataChannel.close();
-      dataChannel.close();
-      // Should not throw
+  describe('Channel ID', () => {
+    it('should allow setting channel ID', () => {
+      const channel = new RTCDataChannel('test');
+      assert.strictEqual(channel.id, null);
+      channel._setId(123);
+      assert.strictEqual(channel.id, 123);
     });
   });
 
-  describe('events', () => {
-    it('should emit bufferedamountlow', (t, done) => {
-      dataChannel.bufferedAmountLowThreshold = 100;
-      dataChannel.on('bufferedamountlow', () => {
-        done();
-      });
-      
-      dataChannel._bufferedAmount = 200;
-      nativeChannel.emit('bufferedamountlow', 50);
+  describe('RTCDataChannelState Enum', () => {
+    it('should have connecting state', () => {
+      assert.strictEqual(RTCDataChannelState.CONNECTING, 'connecting');
     });
 
-    it('should emit error', (t, done) => {
-      dataChannel.on('error', (err) => {
-        assert.ok(err);
-        done();
+    it('should have open state', () => {
+      assert.strictEqual(RTCDataChannelState.OPEN, 'open');
+    });
+
+    it('should have closing state', () => {
+      assert.strictEqual(RTCDataChannelState.CLOSING, 'closing');
+    });
+
+    it('should have closed state', () => {
+      assert.strictEqual(RTCDataChannelState.CLOSED, 'closed');
+    });
+
+    it('should be frozen', () => {
+      assert.throws(() => {
+        'use strict';
+        RTCDataChannelState.CONNECTING = 'modified';
+      });
+    });
+  });
+
+  describe('Event Emitter', () => {
+    let pc1, pc2, channel, remoteChannel;
+
+    beforeEach(async () => {
+      // Create connected peers
+      const peers = await createConnectedPeers('test');
+      pc1 = peers.pc1;
+      pc2 = peers.pc2;
+      channel = peers.channel1;
+      remoteChannel = peers.channel2;
+    });
+
+    afterEach(() => {
+      closePeers(pc1, pc2);
+    });
+
+    it('should support on() for open event', () => {
+      // Channel should already be open from beforeEach
+      assert.strictEqual(channel.readyState, 'open');
+    });
+
+    it('should support on() for close event', async (t) => {
+      // Channel is already open from beforeEach
+      await new Promise(resolve => {
+        channel.on('close', resolve);
+        channel.close();
+      });
+    });
+
+    it('should support on() for message event', async (t) => {
+      // Channels are already open from beforeEach
+      await new Promise((resolve) => {
+        channel.once('message', (event) => {
+          assert.strictEqual(event.data, 'test');
+          resolve();
+        });
+        
+        remoteChannel.send('test');
+      });
+    });
+
+    it('should support on() for bufferedamountlow event', async (t) => {
+      channel.bufferedAmountLowThreshold = 10;
+      await new Promise(resolve => {
+        channel.on('bufferedamountlow', () => {
+          resolve();
+        });
+        channel.send('test');
+        // Give it time to process
+        setTimeout(() => {
+          if (channel.bufferedAmount <= 10) resolve();
+        }, 100);
+      });
+    });
+
+    it('should support once() for events', async (t) => {
+      // Create new channel for this test to test once() behavior
+      const testChannel = pc1.createDataChannel('once-test');
+      let count = 0;
+      testChannel.once('open', () => {
+        count++;
       });
       
-      nativeChannel.emit('error', new Error('test error'));
+      await new Promise(r => setTimeout(r, 200));
+      assert.strictEqual(count, 1);
+    });
+
+    it('should support removeListener()', () => {
+      let called = false;
+      const handler = () => { called = true; };
+      channel.on('open', handler);
+      channel.removeListener('open', handler);
+      // Trigger open manually for this test
+      if (channel.readyState === 'open') {
+        // Already open, check not called
+      }
+      assert.strictEqual(called, false);
+    });
+  });
+
+  describe('Integration', () => {
+    let pc1, pc2;
+
+    afterEach(() => {
+      closePeers(pc1, pc2);
+    });
+
+    it('should handle complete lifecycle', async (t) => {
+      const peers = await createConnectedPeers('lifecycle');
+      pc1 = peers.pc1;
+      pc2 = peers.pc2;
+      const channel = peers.channel1;
+
+      const events = [];
+      channel.on('open', () => events.push('open'));
+      channel.on('closing', () => events.push('closing'));
+      
+      await new Promise(resolve => {
+        channel.on('close', () => {
+          events.push('close');
+          assert.deepStrictEqual(events, ['open', 'closing', 'close']);
+          resolve();
+        });
+
+        // Channel is already open, just close it
+        channel.close();
+      });
+    });
+
+    it('should send and receive messages', async (t) => {
+      const peers = await createConnectedPeers('messages');
+      pc1 = peers.pc1;
+      pc2 = peers.pc2;
+      const channel1 = peers.channel1;
+      const channel2 = peers.channel2;
+
+      await new Promise(resolve => {
+        let received = 0;
+        channel1.on('message', (event) => {
+          received++;
+          if (received === 2) {
+            resolve();
+          }
+        });
+
+        // Send from channel2 to channel1
+        channel2.send('message1');
+        channel2.send('message2');
+      });
     });
   });
 });

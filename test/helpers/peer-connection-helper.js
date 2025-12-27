@@ -1,0 +1,60 @@
+/**
+ * Helper functions for creating connected peer connections in tests
+ */
+
+const { RTCPeerConnection } = require('../../src/peerconnection/RTCPeerConnection.js');
+
+/**
+ * Create two connected peer connections with a data channel
+ * @param {string} channelLabel - Label for the data channel
+ * @returns {Promise<{pc1, pc2, channel1, channel2}>}
+ */
+async function createConnectedPeers(channelLabel = 'test') {
+  const pc1 = new RTCPeerConnection({ iceServers: [] });
+  const pc2 = new RTCPeerConnection({ iceServers: [] });
+  
+  const channel1 = pc1.createDataChannel(channelLabel);
+  
+  let channel2;
+  pc2.once('datachannel', ({ channel }) => {
+    channel2 = channel;
+  });
+  
+  // Signaling
+  const offer = await pc1.createOffer();
+  await pc1.setLocalDescription(offer);
+  await pc2.setRemoteDescription(offer);
+  const answer = await pc2.createAnswer();
+  await pc2.setLocalDescription(answer);
+  await pc1.setRemoteDescription(answer);
+  
+  // Wait for both channels to open
+  await Promise.all([
+    new Promise(r => {
+      if (channel1.readyState === 'open') r();
+      else channel1.once('open', r);
+    }),
+    new Promise(r => {
+      const wait = () => {
+        if (channel2 && channel2.readyState === 'open') r();
+        else setTimeout(wait, 10);
+      };
+      wait();
+    })
+  ]);
+  
+  return { pc1, pc2, channel1, channel2 };
+}
+
+/**
+ * Close peer connections
+ */
+function closePeers(pc1, pc2) {
+  if (pc1) pc1.close();
+  if (pc2) pc2.close();
+}
+
+module.exports = {
+  createConnectedPeers,
+  closePeers
+};

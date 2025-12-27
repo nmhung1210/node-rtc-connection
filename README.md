@@ -1,29 +1,16 @@
-# node-rtc-connection - WebRTC DataChannels for Node.js
+# NodeRTC
 
-[![npm version](https://badge.fury.io/js/node-rtc-connection.svg)](https://www.npmjs.com/package/node-rtc-connection)
-[![Node.js CI](https://github.com/nmhung1210/nodertc/workflows/Test/badge.svg)](https://github.com/nmhung1210/nodertc/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-A production-ready WebRTC DataChannel implementation for Node.js with **real networking**, **STUN/TURN support**, **MESSAGE-INTEGRITY authentication**, and **optional encryption**. Built with pure Node.js - no native dependencies required.
-
-## Overview
-
-node-rtc-connection provides WebRTC-style peer-to-peer data connections using Node.js built-in modules. It supports NAT traversal via STUN/TURN servers with full RFC 5766 MESSAGE-INTEGRITY authentication, optional TLS encryption, and works across the internet for most network configurations.
+A Node.js WebRTC implementation with full ICE/STUN/TURN support for real peer-to-peer networking.
 
 ## Features
 
-- ✅ **RTCPeerConnection** - Full peer connection lifecycle
-- ✅ **RTCDataChannel** - Bidirectional data channels
-- ✅ **STUN Support** - NAT traversal with public STUN servers
-- ✅ **TURN Support** - Relay through TURN servers (RFC 5766)
-- ✅ **MESSAGE-INTEGRITY** - Full authentication support for TURN
-- ✅ **ICE Candidates** - Host, server reflexive, and relay candidates
-- ✅ **TLS Encryption** - Optional secure connections
-- ✅ **Real Networking** - TCP/UDP with actual peer-to-peer communication
-- ✅ **Event-based API** - Built on Node.js EventEmitter
-- ✅ **Zero Dependencies** - Pure Node.js, no native modules
-- ✅ **Docker TURN Server** - Included for testing and development
-- ❌ **No Media Support** - DataChannel only (no audio/video)
+- ✅ **Real Network Transport**: Uses actual UDP/TCP sockets for true peer-to-peer connections
+- ✅ **ICE Support**: Full Interactive Connectivity Establishment with candidate gathering
+- ✅ **STUN Support**: NAT traversal with server reflexive candidates
+- ✅ **TURN Support**: Relay candidates for restrictive network environments
+- ✅ **Data Channels**: Reliable and ordered data channels for P2P communication
+- ✅ **DTLS/SCTP**: Secure transport with DTLS encryption and SCTP for data channels
+- ✅ **Standards Compliant**: Follows WebRTC and ICE specifications
 
 ## Installation
 
@@ -33,200 +20,358 @@ npm install node-rtc-connection
 
 ## Quick Start
 
-### Basic Usage
+### Basic Local Connection (No STUN/TURN)
 
 ```javascript
-const { createPeerConnection } = require('node-rtc-connection');
+const { RTCPeerConnection } = require('node-rtc-connection');
 
-// Create peer connection
-const pc = createPeerConnection();
+// Create two peer connections
+const pc1 = new RTCPeerConnection({ iceServers: [] });
+const pc2 = new RTCPeerConnection({ iceServers: [] });
 
-// Create a data channel
-const channel = pc.createDataChannel('myChannel');
+// Set up data channel on peer 1
+const channel = pc1.createDataChannel('chat');
 
 channel.on('open', () => {
-  console.log('DataChannel opened');
-  channel.send('Hello, peer!');
-});
-
-channel.on('message', (event) => {
-  console.log('Received:', event.data.toString());
-});
-
-// Handle ICE candidates
-pc.on('icecandidate', (event) => {
-  if (event.candidate) {
-    // Send to remote peer via signaling
-  }
-});
-
-// Create and set local description
-const offer = await pc.createOffer();
-await pc.setLocalDescription(offer);
-```
-
-### With STUN and TURN (Recommended)
-
-```javascript
-const { createPeerConnection } = require('node-rtc-connection');
-
-// Configuration with STUN and TURN
-const config = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    {
-      urls: 'turn:turn.example.com:3478',
-      username: 'username',
-      credential: 'password'
-    }
-  ],
-  encryption: false,  // Optional TLS encryption
-  transport: 'tcp'    // Use TCP (or 'udp')
-};
-
-// Create peer connection
-const pc = createPeerConnection(config);
-
-// Rest is the same as basic usage...
-
-channel.on('message', (event) => {
-  console.log('Received:', event.data.toString());
-});
-
-// ICE candidates (includes STUN reflexive candidates)
-pc.on('icecandidate', (event) => {
-  if (event.candidate) {
-    // Send to remote peer via signaling
-    console.log('Candidate:', event.candidate.candidate);
-  }
-});
-```
-
-See [examples/with-stun-encryption.js](examples/with-stun-encryption.js) for a complete working example.
-
-## Usage
-
-### Basic Example
-
-```javascript
-const { createPeerConnection } = require('./src');
-
-// Create peer connection with STUN server
-const pc = createPeerConnection({
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' }
-  ]
-});
-
-// Create a data channel
-const channel = pc.createDataChannel('myChannel', {
-  ordered: true
-});
-
-// Handle channel events
-channel.on('open', () => {
-  console.log('DataChannel opened');
-  channel.send('Hello, peer!');
+  console.log('Channel opened!');
+  channel.send('Hello from Peer 1!');
 });
 
 channel.on('message', (event) => {
   console.log('Received:', event.data);
 });
 
-channel.on('close', () => {
-  console.log('DataChannel closed');
-});
-
-// Handle peer connection events
-pc.on('icecandidate', (event) => {
-  if (event.candidate) {
-    // Send candidate to remote peer via signaling
-    console.log('ICE candidate:', event.candidate);
-  }
-});
-
-pc.on('datachannel', (event) => {
-  // Handle incoming data channel from remote peer
-  const remoteChannel = event.channel;
-  console.log('Remote channel opened:', remoteChannel.label);
-});
-
-// Create and send offer
-pc.createOffer()
-  .then(offer => pc.setLocalDescription(offer))
-  .then(() => {
-    // Send offer to remote peer via signaling
-    console.log('Offer created:', pc.localDescription);
-  });
-```
-
-### Complete Signaling Example
-
-```javascript
-const { createPeerConnection } = require('./src');
-
-// Peer 1 (Offerer)
-const pc1 = createPeerConnection({
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-});
-
-// Peer 2 (Answerer)
-const pc2 = createPeerConnection({
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-});
-
-// Exchange ICE candidates
-pc1.on('icecandidate', (event) => {
-  if (event.candidate) {
-    pc2.addIceCandidate(event.candidate);
-  }
-});
-
-pc2.on('icecandidate', (event) => {
-  if (event.candidate) {
-    pc1.addIceCandidate(event.candidate);
-  }
-});
-
-// Handle incoming data channel on peer 2
+// Peer 2 receives data channel
 pc2.on('datachannel', (event) => {
   const channel = event.channel;
+  
   channel.on('message', (event) => {
-    console.log('Peer 2 received:', event.data);
+    console.log('Received:', event.data);
     channel.send('Hello from Peer 2!');
   });
 });
 
-// Create data channel on peer 1
-const channel = pc1.createDataChannel('chat');
-
-channel.on('open', () => {
-  console.log('Channel opened');
-  channel.send('Hello from Peer 1!');
+// Exchange ICE candidates
+pc1.on('icecandidate', (e) => {
+  if (e.candidate) pc2.addIceCandidate(e.candidate);
 });
 
-channel.on('message', (event) => {
-  console.log('Peer 1 received:', event.data);
+pc2.on('icecandidate', (e) => {
+  if (e.candidate) pc1.addIceCandidate(e.candidate);
 });
 
-// Start signaling
+// Signaling (offer/answer exchange)
 async function connect() {
-  // Create offer
   const offer = await pc1.createOffer();
   await pc1.setLocalDescription(offer);
   
-  // Set remote description on peer 2
   await pc2.setRemoteDescription(offer);
-  
-  // Create answer
   const answer = await pc2.createAnswer();
   await pc2.setLocalDescription(answer);
   
-  // Set remote description on peer 1
   await pc1.setRemoteDescription(answer);
 }
 
 connect();
+```
+
+### With STUN Server (NAT Traversal)
+
+```javascript
+const { RTCPeerConnection } = require('node-rtc-connection');
+
+const config = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' }
+  ]
+};
+
+const pc = new RTCPeerConnection(config);
+
+// Listen for gathered ICE candidates
+pc.on('icecandidate', (event) => {
+  if (event.candidate) {
+    console.log('ICE Candidate:', event.candidate.candidate);
+    // Send to remote peer via your signaling channel
+  }
+});
+
+// Create offer and start ICE gathering
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+```
+
+### With TURN Server (Relay Support)
+
+```javascript
+const { RTCPeerConnection } = require('node-rtc-connection');
+
+const config = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    {
+      urls: 'turn:turn.example.com:3478',
+      username: 'your-username',
+      credential: 'your-password'
+    }
+  ]
+};
+
+const pc = new RTCPeerConnection(config);
+
+pc.on('icecandidate', (event) => {
+  if (event.candidate) {
+    const candidate = event.candidate.candidate;
+    
+    // Check candidate type
+    if (candidate.includes('typ relay')) {
+      console.log('TURN relay candidate:', candidate);
+    } else if (candidate.includes('typ srflx')) {
+      console.log('STUN reflexive candidate:', candidate);
+    } else if (candidate.includes('typ host')) {
+      console.log('Host candidate:', candidate);
+    }
+  }
+});
+```
+
+## Configuration Options
+
+```javascript
+const config = {
+  // Array of ICE servers (STUN/TURN)
+  iceServers: [
+    { 
+      urls: 'stun:stun.l.google.com:19302' 
+    },
+    {
+      urls: [
+        'turn:turn.example.com:3478?transport=udp',
+        'turn:turn.example.com:3478?transport=tcp'
+      ],
+      username: 'user',
+      credential: 'pass'
+    }
+  ],
+  
+  // ICE transport policy
+  iceTransportPolicy: 'all', // 'all' or 'relay'
+  
+  // Bundle policy
+  bundlePolicy: 'balanced', // 'balanced', 'max-bundle', or 'max-compat'
+  
+  // RTCP mux policy
+  rtcpMuxPolicy: 'require', // 'negotiate' or 'require'
+  
+  // ICE candidate pool size
+  iceCandidatePoolSize: 0
+};
+
+const pc = new RTCPeerConnection(config);
+```
+
+## Data Channel API
+
+```javascript
+// Create data channel with options
+const channel = pc.createDataChannel('myChannel', {
+  ordered: true,           // Guarantee message order
+  maxRetransmits: 3,       // Max retransmissions (if not ordered)
+  maxPacketLifeTime: 3000, // Max packet lifetime in ms
+  protocol: 'custom',      // Sub-protocol
+  negotiated: false,       // Manual negotiation
+  id: 0                    // Channel ID (if negotiated)
+});
+
+// Events
+channel.on('open', () => {
+  console.log('Channel opened');
+});
+
+channel.on('close', () => {
+  console.log('Channel closed');
+});
+
+channel.on('error', (error) => {
+  console.error('Channel error:', error);
+});
+
+channel.on('message', (event) => {
+  console.log('Message received:', event.data);
+});
+
+// Send data
+channel.send('Hello World');
+channel.send(Buffer.from([1, 2, 3, 4])); // Binary data
+
+// Close channel
+channel.close();
+```
+
+## RTCPeerConnection Events
+
+```javascript
+const pc = new RTCPeerConnection(config);
+
+// ICE candidate discovered
+pc.on('icecandidate', (event) => {
+  // event.candidate contains the ICE candidate
+});
+
+// ICE gathering state changed
+pc.on('icegatheringstatechange', () => {
+  console.log('Gathering state:', pc.iceGatheringState);
+  // 'new', 'gathering', or 'complete'
+});
+
+// ICE connection state changed
+pc.on('iceconnectionstatechange', () => {
+  console.log('ICE state:', pc.iceConnectionState);
+  // 'new', 'checking', 'connected', 'completed', 'failed', 'disconnected', 'closed'
+});
+
+// Connection state changed
+pc.on('connectionstatechange', () => {
+  console.log('Connection state:', pc.connectionState);
+  // 'new', 'connecting', 'connected', 'disconnected', 'failed', 'closed'
+});
+
+// Signaling state changed
+pc.on('signalingstatechange', () => {
+  console.log('Signaling state:', pc.signalingState);
+  // 'stable', 'have-local-offer', 'have-remote-offer', 'have-local-pranswer', 'have-remote-pranswer', 'closed'
+});
+
+// Data channel received (for answerer)
+pc.on('datachannel', (event) => {
+  const channel = event.channel;
+  console.log('Received data channel:', channel.label);
+});
+
+// Negotiation needed
+pc.on('negotiationneeded', () => {
+  console.log('Negotiation needed');
+});
+```
+
+## Complete Example: Two-Peer Communication
+
+```javascript
+const { RTCPeerConnection } = require('node-rtc-connection');
+
+async function createPeerConnection() {
+  const config = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' }
+    ]
+  };
+
+  // Create peer connections
+  const offerer = new RTCPeerConnection(config);
+  const answerer = new RTCPeerConnection(config);
+
+  // Exchange ICE candidates
+  offerer.on('icecandidate', (e) => {
+    if (e.candidate) answerer.addIceCandidate(e.candidate);
+  });
+
+  answerer.on('icecandidate', (e) => {
+    if (e.candidate) offerer.addIceCandidate(e.candidate);
+  });
+
+  // Set up data channel on offerer
+  const channel = offerer.createDataChannel('chat');
+
+  channel.on('open', () => {
+    console.log('Offerer: Channel opened');
+    channel.send('Hello from offerer!');
+  });
+
+  channel.on('message', (event) => {
+    console.log('Offerer received:', event.data);
+  });
+
+  // Answerer receives data channel
+  answerer.on('datachannel', (event) => {
+    const channel = event.channel;
+
+    channel.on('open', () => {
+      console.log('Answerer: Channel opened');
+    });
+
+    channel.on('message', (event) => {
+      console.log('Answerer received:', event.data);
+      channel.send('Hello from answerer!');
+    });
+  });
+
+  // Perform signaling
+  const offer = await offerer.createOffer();
+  await offerer.setLocalDescription(offer);
+
+  await answerer.setRemoteDescription(offer);
+  const answer = await answerer.createAnswer();
+  await answerer.setLocalDescription(answer);
+
+  await offerer.setRemoteDescription(answer);
+
+  // Wait for connection
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Clean up
+  channel.close();
+  offerer.close();
+  answerer.close();
+}
+
+createPeerConnection().catch(console.error);
+```
+
+## Example Files
+
+The package includes several example files demonstrating different features:
+
+- **`examples/real-networking-demo.js`** - Basic peer-to-peer connection without STUN/TURN
+- **`examples/stun-demo.js`** - STUN server usage for NAT traversal
+- **`examples/turn-demo.js`** - TURN relay with full peer-to-peer communication
+- **`examples/peer-connection-demo.js`** - Simple peer connection setup
+- **`examples/simple-datachannel.js`** - Basic data channel usage
+
+Run examples:
+```bash
+node examples/real-networking-demo.js
+node examples/stun-demo.js
+node examples/turn-demo.js
+```
+
+## Configuration File
+
+The examples use a `peer.config.json` file for centralized configuration:
+
+```json
+{
+  "iceServers": [
+    { "urls": "stun:stun.l.google.com:19302" }
+  ],
+  "localDemo": {
+    "iceServers": []
+  },
+  "stunOnly": {
+    "iceServers": [
+      { "urls": "stun:stun.l.google.com:19302" }
+    ]
+  },
+  "turnConfig": {
+    "iceServers": [
+      { "urls": "stun:stun.example.com:3478" },
+      {
+        "urls": "turn:turn.example.com:3478",
+        "username": "user",
+        "credential": "pass"
+      }
+    ]
+  }
+}
 ```
 
 ## API Reference
@@ -235,193 +380,68 @@ connect();
 
 #### Constructor
 ```javascript
-new RTCPeerConnection(configuration, nativePeerConnectionFactory)
+new RTCPeerConnection(configuration?)
 ```
 
-#### Properties
-- `signalingState` - Current signaling state
-- `iceGatheringState` - Current ICE gathering state
-- `iceConnectionState` - Current ICE connection state
-- `connectionState` - Current connection state
-- `localDescription` - Local session description
-- `remoteDescription` - Remote session description
-
 #### Methods
-- `createOffer(options)` - Create an SDP offer
-- `createAnswer(options)` - Create an SDP answer
-- `setLocalDescription(description)` - Set local description
-- `setRemoteDescription(description)` - Set remote description
-- `addIceCandidate(candidate)` - Add an ICE candidate
-- `createDataChannel(label, options)` - Create a data channel
-- `getConfiguration()` - Get current configuration
-- `setConfiguration(configuration)` - Update configuration
-- `close()` - Close the peer connection
-- `getStats()` - Get connection statistics
+- `createOffer(options?)` - Create SDP offer
+- `createAnswer(options?)` - Create SDP answer
+- `setLocalDescription(description)` - Set local SDP
+- `setRemoteDescription(description)` - Set remote SDP
+- `addIceCandidate(candidate)` - Add remote ICE candidate
+- `createDataChannel(label, options?)` - Create data channel
+- `close()` - Close the connection
 
-#### Events
-- `signalingstatechange` - Signaling state changed
-- `iceconnectionstatechange` - ICE connection state changed
-- `icegatheringstatechange` - ICE gathering state changed
-- `connectionstatechange` - Connection state changed
-- `icecandidate` - New ICE candidate available
-- `datachannel` - Remote data channel opened
-- `negotiationneeded` - Negotiation needed
+#### Properties
+- `localDescription` - Local SDP description
+- `remoteDescription` - Remote SDP description
+- `signalingState` - Current signaling state
+- `iceGatheringState` - ICE gathering state
+- `iceConnectionState` - ICE connection state
+- `connectionState` - Overall connection state
 
 ### RTCDataChannel
+
+#### Methods
+- `send(data)` - Send data (string or Buffer)
+- `close()` - Close the channel
 
 #### Properties
 - `label` - Channel label
 - `ordered` - Whether messages are ordered
+- `maxRetransmits` - Maximum retransmissions
 - `maxPacketLifeTime` - Maximum packet lifetime
-- `maxRetransmits` - Maximum retransmits
-- `protocol` - Subprotocol name
-- `negotiated` - Whether channel was negotiated
+- `protocol` - Sub-protocol
+- `negotiated` - Whether manually negotiated
 - `id` - Channel ID
-- `readyState` - Current state: 'connecting', 'open', 'closing', 'closed'
+- `readyState` - Current state ('connecting', 'open', 'closing', 'closed')
 - `bufferedAmount` - Bytes queued to send
-- `bufferedAmountLowThreshold` - Threshold for bufferedamountlow event
-- `binaryType` - Binary data format: 'arraybuffer' or 'blob'
 
-#### Methods
-- `send(data)` - Send data (string, ArrayBuffer, or ArrayBufferView)
-- `close()` - Close the channel
+## Requirements
 
-#### Events
-- `open` - Channel opened
-- `close` - Channel closed
-- `message` - Message received
-- `error` - Error occurred
-- `bufferedamountlow` - Buffered amount dropped below threshold
+- Node.js 14 or higher
+- UDP/TCP network access for ICE connectivity
 
-## Testing
+## Setting Up Your Own TURN Server
 
-node-rtc-connection includes comprehensive unit tests covering all components:
+For production use, it's recommended to run your own TURN server using [coturn](https://github.com/coturn/coturn):
 
 ```bash
-# Run all unit tests (fast, ~500ms)
-npm test
+# Install coturn
+apt-get install coturn
 
-# Run tests in watch mode
-npm run test:watch
-
-# Run integration tests (slower, uses real networking)
-npm run test:integration
-
-# Run all tests including integration
-npm run test:all
+# Basic configuration
+turnserver -v -L 0.0.0.0 -a -u user:password -r realm
 ```
-
-**Test Coverage**: 96 unit tests with 100% pass rate. See [TEST_COVERAGE.md](TEST_COVERAGE.md) for detailed coverage information.
-
-## Implementation Notes
-
-### Current Implementation
-
-This implementation uses **real Node.js networking** via the `net` package for peer-to-peer TCP connections:
-
-- ✅ **Real TCP connections** between peers
-- ✅ **Actual data transmission** over sockets
-- ✅ **Real SDP generation** with network addresses
-- ✅ **Working ICE candidates** with local IP addresses
-- ✅ **Bidirectional messaging** between data channels
-- ✅ **Connection lifecycle** management
-
-The `NativePeerConnectionFactory` creates TCP servers and clients to establish peer-to-peer connections. Data channels transmit messages over these TCP connections using a simple framing protocol.
-
-### How It Works
-
-1. **Offer/Answer Exchange**: Peers exchange SDP containing their IP address and port
-2. **TCP Server**: Each peer creates a TCP server listening on a random port
-3. **Connection**: The answerer connects to the offerer's TCP server
-4. **Data Channel Protocol**: Messages are framed with length + channel label + data
-5. **Bidirectional Communication**: Both peers can send and receive on the established socket
-
-### Example Output
-
-```bash
-$ node examples/real-networking.js
-
-✓ PC1: Data channel opened!
-✓ PC2: Data channel opened!
-
-PC1: Sending first message...
-📨 PC2 received: Hello from Peer 1!
-PC2: Sending reply...
-📨 PC1 received: Hello from Peer 2! Nice to meet you.
-```
-
-## Development & Contributing
-
-### Setup
-
-```bash
-git clone https://github.com/nmhung1210/nodertc.git
-cd nodertc
-npm install
-```
-
-### Testing
-
-```bash
-# Run all tests
-npm test
-
-# Run specific test suites
-npm run test:stun      # STUN tests
-npm run test:turn      # TURN tests
-npm run test:integration  # Integration tests
-```
-
-### Building
-
-```bash
-npm run build
-```
-
-This creates CommonJS and ES Module bundles in `dist/`.
-
-### CI/CD
-
-This project uses GitHub Actions for automated testing and publishing:
-
-- **Test Workflow**: Runs on push/PR, tests on Node.js 18.x, 20.x, 22.x
-- **Publish Workflow**: Triggers on version tags, automatically publishes to NPM
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed publishing instructions.
-
-## Differences from Browser WebRTC
-
-### Not Included (DataChannel-only focus)
-- ❌ MediaStream / MediaStreamTrack
-- ❌ getUserMedia
-- ❌ RTCRtpSender / RTCRtpReceiver
-- ❌ RTCRtpTransceiver
-- ❌ Audio/Video codecs
-- ❌ RTCDTMFSender
-- ❌ Media constraints
-
-### Simplified
-- Event handling uses Node.js EventEmitter instead of DOM events
-- No dependency on browser APIs
-- Synchronous where possible (async only for native operations)
-
-## Contributing
-
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+BSD-3-Clause
 
-## Credits
+## Contributing
 
-Ported from Chromium's WebRTC implementation:
-- Original source: `third_party/blink/renderer/modules/peerconnection/`
-- Copyright (C) 2012 Google Inc.
+Contributions are welcome! Please feel free to submit issues or pull requests.
 
-## Links
+## Acknowledgments
 
-- [NPM Package](https://www.npmjs.com/package/node-rtc-connection)
-- [GitHub Repository](https://github.com/nmhung1210/nodertc)
-- [Issues](https://github.com/nmhung1210/nodertc/issues)
-- [Contributing Guide](CONTRIBUTING.md)
+This implementation is inspired by and follows the WebRTC standards and specifications, with particular reference to Chromium's WebRTC implementation.

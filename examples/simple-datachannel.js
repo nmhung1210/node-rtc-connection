@@ -4,21 +4,18 @@
  */
 
 const { createPeerConnection } = require('../src');
+const fs = require('fs');
+const path = require('path');
+
+// Load peer configuration
+const configPath = path.join(__dirname, 'peer.config.json');
+const peerConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
 console.log('=== NodeRTC DataChannel Example ===\n');
 
 // Create two peer connections (simulating two peers)
-const pc1 = createPeerConnection({
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' }
-  ]
-});
-
-const pc2 = createPeerConnection({
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' }
-  ]
-});
+const pc1 = createPeerConnection(peerConfig.stunOnly);
+const pc2 = createPeerConnection(peerConfig.stunOnly);
 
 console.log('✓ Created two peer connections\n');
 

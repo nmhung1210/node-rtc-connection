@@ -9,37 +9,27 @@
  */
 
 const { createPeerConnection } = require('../src');
+const fs = require('fs');
+const path = require('path');
+
+// Load peer configuration
+const configPath = path.join(__dirname, 'peer.config.json');
+const peerConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
 async function main() {
   console.log('==========================================');
   console.log('NodeRTC - TURN Relay Example');
   console.log('==========================================\n');
 
-  // Configuration with STUN and TURN servers
+  // Use TURN configuration from config file
   const config = {
-    iceServers: [
-      // STUN for NAT discovery
-      { urls: 'stun:stun.l.google.com:19302' },
-      
-      // TURN for relay (public servers)
-      {
-        urls: 'turn:numb.viagenie.ca:3478',
-        username: 'webrtc@live.com',
-        credential: 'muazkh'
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      }
-    ],
+    ...peerConfig.turnConfig,
     encryption: false,
     transport: 'tcp'
   };
 
-  console.log('Configuration:');
-  console.log('  - STUN: Google STUN (NAT discovery)');
-  console.log('  - TURN: Viagenie + Metered (relay)');
+  console.log('Configuration from peer.config.json:');
+  console.log('  - TURN servers:', config.iceServers.map(s => s.urls).join(', '));
   console.log('  - Use case: Symmetric NAT / Firewalls\n');
 
   const pc1 = createPeerConnection(config);

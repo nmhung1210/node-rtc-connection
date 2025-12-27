@@ -9,25 +9,28 @@
  */
 
 const { createPeerConnection } = require('../src');
+const fs = require('fs');
+const path = require('path');
+
+// Load peer configuration
+const configPath = path.join(__dirname, 'peer.config.json');
+const peerConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 
 async function main() {
-  console.log('==========================================');
+  console.log('=========================================='  );
   console.log('NodeRTC - STUN + Encryption Example');
   console.log('==========================================\n');
 
   // Configuration with STUN servers and encryption
   const config = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' }
-    ],
+    ...peerConfig.stunOnly,
     encryption: false,  // Encryption requires proper certificates (advanced)
     transport: 'tcp'    // Use TCP (can be 'udp' for lower latency)
   };
 
   // Create two peer connections
   console.log('Creating peer connections with configuration:');
-  console.log('  - STUN servers: Google STUN');
+  console.log('  - STUN servers: From config file');
   console.log('  - Encryption: DISABLED (optional feature)');
   console.log('  - Transport: TCP\n');
 
