@@ -222,6 +222,9 @@ class RTCDataChannel extends EventEmitter {
    */
   _onStateChange(state) {
     let newState;
+    let shouldEmitOpen = false;
+    let shouldEmitClosing = false;
+    let shouldEmitClose = false;
     
     switch (state) {
       case 0: // kConnecting
@@ -229,15 +232,15 @@ class RTCDataChannel extends EventEmitter {
         break;
       case 1: // kOpen
         newState = 'open';
-        this.emit('open');
+        shouldEmitOpen = true;
         break;
       case 2: // kClosing
         newState = 'closing';
-        this.emit('closing');
+        shouldEmitClosing = true;
         break;
       case 3: // kClosed
         newState = 'closed';
-        this.emit('close');
+        shouldEmitClose = true;
         break;
       default:
         return;
@@ -246,6 +249,17 @@ class RTCDataChannel extends EventEmitter {
     // Only update state if it actually changed
     if (this._readyState !== newState) {
       this._setState(newState);
+    }
+    
+    // Emit events AFTER state is updated
+    if (shouldEmitOpen) {
+      this.emit('open');
+    }
+    if (shouldEmitClosing) {
+      this.emit('closing');
+    }
+    if (shouldEmitClose) {
+      this.emit('close');
     }
   }
 

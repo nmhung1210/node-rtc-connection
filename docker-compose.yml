@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  coturn:
+    image: coturn/coturn:latest
+    container_name: nodertc-turnserver
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    environment:
+      - DETECT_EXTERNAL_IP=yes
+    restart: unless-stopped
+    command: -c /etc/coturn/turnserver.conf

@@ -3,6 +3,10 @@ const net = require('net');
 const dgram = require('dgram');
 const crypto = require('crypto');
 const os = require('os');
+const STUNClient = require('./STUNClient');
+const ICEGatherer = require('./ICEGatherer');
+const { SecureConnection } = require('./SecureConnection');
+const UDPTransport = require('./UDPTransport');
 
 /**
  * NativePeerConnectionFactory creates native peer connection instances.
@@ -65,7 +69,7 @@ class NativePeerConnectionFactory {
 class NativePeerConnection extends EventEmitter {
   constructor(configuration) {
     super();
-    this._configuration = configuration;
+    this._configuration = configuration || {};
     this._signalingState = 0; // stable
     this._iceConnectionState = 0; // new
     this._iceGatheringState = 0; // new
@@ -87,7 +91,42 @@ class NativePeerConnection extends EventEmitter {
     this._icePassword = this._generateRandomString(24);
     this._fingerprint = this._generateFingerprint();
     
-    console.log('[NativePeerConnection] Created with real networking support');
+    // New features
+    this._useEncryption = this._configuration.encryption === true; // Disabled by default
+    this._useUDP = this._configuration.transport === 'udp';
+    this._iceGatherer = new ICEGatherer({
+      stunServers: this._extractSTUNServers(this._configuration)
+    });
+    this._secureConnection = null;
+    this._udpTransport = null;
+    this._iceCandidates = [];
+    
+    console.log('[NativePeerConnection] Created with STUN/ICE/Encryption support');
+    console.log(`  - Encryption: ${this._useEncryption ? 'enabled' : 'disabled (requires valid certs)'}`);
+    console.log(`  - Transport: ${this._useUDP ? 'UDP' : 'TCP'}`);
+  }
+  
+  /**
+   * Extract STUN servers from configuration
+   * @private
+   */
+  _extractSTUNServers(config) {
+    const stunServers = [];
+    
+    if (config.iceServers) {
+      for (const server of config.iceServers) {
+        if (server.urls) {
+          const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+          for (const url of urls) {
+            if (url.startsWith('stun:')) {
+              stunServers.push(url.replace('stun:', ''));
+            }
+          }
+        }
+      }
+    }
+    
+    return stunServers.length > 0 ? stunServers : undefined;
   }
 
   /**
@@ -288,6 +327,18 @@ class NativePeerConnection extends EventEmitter {
     }
     this._dataChannels.clear();
 
+    // Close secure connection
+    if (this._secureConnection) {
+      this._secureConnection.close();
+      this._secureConnection = null;
+    }
+
+    // Close UDP transport
+    if (this._udpTransport) {
+      this._udpTransport.close();
+      this._udpTransport = null;
+    }
+
     // Close socket
     if (this._socket) {
       this._socket.destroy();
@@ -356,8 +407,14 @@ class NativePeerConnection extends EventEmitter {
     
     this._socket = new net.Socket();
     
-    this._socket.connect(this._remotePort, this._remoteAddress, () => {
+    this._socket.connect(this._remotePort, this._remoteAddress, async () => {
       console.log('[NativePeerConnection] Connected to peer');
+      
+      // Apply TLS encryption if enabled
+      if (this._useEncryption) {
+        await this._wrapWithEncryption(false);
+      }
+      
       this._iceConnectionState = 2; // connected
       this.emit('iceconnectionstatechange', this._iceConnectionState);
       
@@ -365,7 +422,7 @@ class NativePeerConnection extends EventEmitter {
       setImmediate(() => {
         for (const [label, channel] of this._dataChannels) {
           this._sendChannelAnnouncement(label);
-          channel._setConnected(this._socket);
+          channel._setConnected(this._getActiveSocket());
         }
       });
     });
@@ -377,7 +434,7 @@ class NativePeerConnection extends EventEmitter {
    * Handle incoming connection from peer
    * @private
    */
-  _handleIncomingConnection(socket) {
+  async _handleIncomingConnection(socket) {
     if (this._socket) {
       console.log('[NativePeerConnection] Connection already exists, closing new one');
       socket.destroy();
@@ -390,6 +447,12 @@ class NativePeerConnection extends EventEmitter {
     this._setupSocketHandlers(socket);
     
     this._socket = socket;
+    
+    // Apply TLS encryption if enabled
+    if (this._useEncryption) {
+      await this._wrapWithEncryption(true);
+    }
+    
     this._iceConnectionState = 2; // connected
     this.emit('iceconnectionstatechange', this._iceConnectionState);
     
@@ -397,9 +460,38 @@ class NativePeerConnection extends EventEmitter {
     setImmediate(() => {
       for (const [label, channel] of this._dataChannels) {
         this._sendChannelAnnouncement(label);
-        channel._setConnected(this._socket);
+        channel._setConnected(this._getActiveSocket());
       }
     });
+  }
+  
+  /**
+   * Wrap socket with TLS encryption
+   * @private
+   */
+  async _wrapWithEncryption(isServer) {
+    try {
+      console.log(`[NativePeerConnection] Enabling TLS encryption (${isServer ? 'server' : 'client'})`);
+      
+      this._secureConnection = new SecureConnection(this._socket, { isServer });
+      await this._secureConnection.wrap();
+      
+      // Update fingerprint with real certificate
+      this._fingerprint = this._secureConnection.getFingerprint();
+      
+      console.log('[NativePeerConnection] TLS encryption enabled');
+    } catch (err) {
+      console.error('[NativePeerConnection] Failed to enable encryption:', err);
+      throw err;
+    }
+  }
+  
+  /**
+   * Get the active socket (secure or plain)
+   * @private
+   */
+  _getActiveSocket() {
+    return this._secureConnection?.secureSocket || this._socket;
   }
 
   /**
@@ -588,12 +680,35 @@ a=max-message-size:262144
    * Start ICE gathering with real network addresses
    * @private
    */
-  _startIceGathering() {
+  /**
+   * Start ICE candidate gathering with STUN support
+   * @private
+   */
+  async _startIceGathering() {
     this._iceGatheringState = 1; // gathering
     this.emit('icegatheringstatechange', this._iceGatheringState);
 
-    // Generate real ICE candidate with local address
-    setTimeout(() => {
+    try {
+      // Use real ICE gatherer to get host and srflx candidates
+      const candidates = await this._iceGatherer.gatherCandidates(this._localPort);
+      
+      console.log(`[NativePeerConnection] Gathered ${candidates.length} ICE candidates`);
+      
+      // Emit each candidate
+      for (const candidate of candidates) {
+        this._iceCandidates.push(candidate);
+        this.emit('icecandidate', {
+          candidate: candidate.candidate,
+          sdpMid: candidate.sdpMid,
+          sdpMLineIndex: candidate.sdpMLineIndex
+        });
+        
+        console.log(`[NativePeerConnection] ICE candidate (${candidate.type}): ${candidate.ip}:${candidate.port}`);
+      }
+    } catch (err) {
+      console.warn('[NativePeerConnection] ICE gathering error:', err.message);
+      
+      // Fallback: emit only local host candidate
       if (this._localAddress && this._localPort) {
         const candidate = {
           candidate: `candidate:1 1 tcp 2130706431 ${this._localAddress} ${this._localPort} typ host`,
@@ -601,17 +716,17 @@ a=max-message-size:262144
           sdpMLineIndex: 0
         };
         this.emit('icecandidate', candidate);
-        
-        console.log(`[NativePeerConnection] Generated ICE candidate: ${this._localAddress}:${this._localPort}`);
+        console.log(`[NativePeerConnection] Fallback ICE candidate: ${this._localAddress}:${this._localPort}`);
       }
-
+    } finally {
       // Complete gathering
       setTimeout(() => {
         this._iceGatheringState = 2; // complete
         this.emit('icegatheringstatechange', this._iceGatheringState);
         this.emit('icecandidate', null); // End of candidates
+        console.log('[NativePeerConnection] ICE gathering complete');
       }, 100);
-    }, 50);
+    }
   }
 
   /**

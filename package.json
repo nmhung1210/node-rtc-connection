@@ -1,7 +1,7 @@
 {
   "name": "nodertc",
   "version": "1.0.0",
-  "description": "DataChannel-only WebRTC implementation for Node.js, ported from Chromium's PeerConnection",
+  "description": "WebRTC DataChannel implementation for Node.js with STUN, NAT traversal, and encryption. Pure Node.js, no native dependencies.",
   "main": "src/index.js",
   "scripts": {
     "test": "node test/run-all-tests.js",
@@ -9,8 +9,14 @@
     "test:unit": "SKIP_INTEGRATION=1 node --test test/*.test.js",
     "test:integration": "node --test test/integration.test.js",
     "test:all": "SKIP_INTEGRATION=0 node test/run-all-tests.js",
+    "test:stun": "node --test test/STUN.test.js",
+    "test:turn": "node --test test/TURN.test.js",
+    "test:turn-integration": "node --test test/turn-integration.test.js",
+    "test:turn-all": "node --test test/TURN.test.js test/turn-integration.test.js",
     "example": "node examples/real-networking.js",
-    "example:simple": "node examples/simple-datachannel.js"
+    "example:simple": "node examples/simple-datachannel.js",
+    "example:stun": "node examples/with-stun-encryption.js",
+    "example:turn": "node examples/with-turn-relay.js"
   },
   "keywords": [
     "webrtc",
@@ -18,7 +24,13 @@
     "peer-connection",
     "rtc",
     "p2p",
-    "real-time"
+    "real-time",
+    "stun",
+    "nat-traversal",
+    "ice",
+    "encryption",
+    "tls",
+    "peer-to-peer"
   ],
   "author": "",
   "license": "ISC",

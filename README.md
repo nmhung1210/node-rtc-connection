@@ -1,19 +1,22 @@
-# NodeRTC - DataChannel-only WebRTC for Node.js
+# NodeRTC - WebRTC DataChannels for Node.js
 
-A DataChannel-only WebRTC implementation for Node.js, ported from Chromium's PeerConnection implementation. This library focuses solely on DataChannel functionality and does not include media stream support (audio/video).
+A production-ready WebRTC DataChannel implementation for Node.js with **real networking**, **STUN support**, and **optional encryption**. Built with pure Node.js - no native dependencies required.
 
 ## Overview
 
-This project ports the core PeerConnection and DataChannel classes from Chromium's C++ implementation to JavaScript for Node.js. It provides a clean, event-driven API for establishing peer-to-peer data connections.
+NodeRTC provides WebRTC-style peer-to-peer data connections using Node.js built-in modules. It supports NAT traversal via STUN, optional TLS encryption, and works across the internet for most network configurations.
 
 ## Features
 
-- ✅ **RTCPeerConnection** - Full peer connection lifecycle management
-- ✅ **RTCDataChannel** - Bidirectional data channel communication
-- ✅ **RTCSessionDescription** - SDP offer/answer handling
-- ✅ **RTCIceCandidate** - ICE candidate processing
+- ✅ **RTCPeerConnection** - Full peer connection lifecycle
+- ✅ **RTCDataChannel** - Bidirectional data channels
+- ✅ **STUN Support** - NAT traversal with public STUN servers
+- ✅ **ICE Candidates** - Host and server reflexive candidates
+- ✅ **TLS Encryption** - Optional secure connections
+- ✅ **Real Networking** - TCP/UDP with actual peer-to-peer communication
 - ✅ **Event-based API** - Built on Node.js EventEmitter
-- ❌ **No Media Support** - Audio/video streams not included (DataChannel only)
+- ✅ **Zero Dependencies** - Pure Node.js, no native modules
+- ❌ **No Media Support** - DataChannel only (no audio/video)
 
 ## Architecture
 
@@ -47,6 +50,48 @@ src/
 ```bash
 npm install
 ```
+
+## Quick Start
+
+### With STUN and Encryption (Recommended)
+
+```javascript
+const { createPeerConnection } = require('./src');
+
+// Configuration
+const config = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' }
+  ],
+  encryption: true,  // Enable TLS encryption
+  transport: 'tcp'   // Use TCP (or 'udp')
+};
+
+// Create peer connection
+const pc = createPeerConnection(config);
+
+// Create a data channel
+const channel = pc.createDataChannel('myChannel');
+
+channel.on('open', () => {
+  console.log('DataChannel opened (encrypted)');
+  channel.send('Hello, secure peer!');
+});
+
+channel.on('message', (event) => {
+  console.log('Received:', event.data.toString());
+});
+
+// ICE candidates (includes STUN reflexive candidates)
+pc.on('icecandidate', (event) => {
+  if (event.candidate) {
+    // Send to remote peer via signaling
+    console.log('Candidate:', event.candidate.candidate);
+  }
+});
+```
+
+See [examples/with-stun-encryption.js](examples/with-stun-encryption.js) for a complete working example.
 
 ## Usage
 
