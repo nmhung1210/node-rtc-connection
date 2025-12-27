@@ -75,7 +75,7 @@ describe('TURN Integration Tests', () => {
         await pc1.setRemoteDescription(answer);
 
         // Wait for ICE gathering (including TURN)
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         console.log(`  PC1 relay candidates: ${pc1RelayCandidates}`);
         console.log(`  PC2 relay candidates: ${pc2RelayCandidates}`);
@@ -89,10 +89,10 @@ describe('TURN Integration Tests', () => {
           console.log('  ✓ Relay candidates gathered successfully');
         }
 
-        // Wait for connection
+        // Wait for connection with shorter timeout for CI
         await Promise.race([
           Promise.all([channelOpenPromise, datachanelPromise]),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 8000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 3000))
         ]);
 
         assert.ok(connectionEstablished, 'Connection should be established');
@@ -161,7 +161,7 @@ describe('TURN Integration Tests', () => {
         await pc1.setRemoteDescription(answer);
 
         // Wait for connection
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         // Send message
         channel1.on('open', () => {
@@ -173,7 +173,7 @@ describe('TURN Integration Tests', () => {
         // Wait for messages
         await Promise.race([
           Promise.all([datachanelPromise, messagePromise]),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Message timeout')), 8000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Message timeout')), 3000))
         ]);
 
         assert.ok(messageReceived, 'Should receive message');
@@ -220,7 +220,7 @@ describe('TURN Integration Tests', () => {
         await pc.setLocalDescription(offer);
 
         // Wait for ICE gathering
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         console.log(`  Host candidates: ${candidates.host.length}`);
         console.log(`  Srflx candidates: ${candidates.srflx.length}`);

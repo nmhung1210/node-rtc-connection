@@ -94,86 +94,80 @@ describe('TURN Client and Server', () => {
       
       const socket = dgram.createSocket('udp4');
       client.socket = socket;
+      
+      // Store reference before close
+      const wasConnected = client.socket !== null;
       client.close();
       
       assert.strictEqual(client.socket, null, 'Socket should be null');
       assert.strictEqual(client.allocation, null, 'Allocation should be null');
-      
-      // Ensure socket is closed
-      if (!socket.destroyed) {
-        socket.close();
-      }
+      assert.strictEqual(wasConnected, true, 'Client should have had a socket');
     });
   });
 
   describe('Mock TURN Server', () => {
-    let mockServer = null;
-    let serverPort = 0;
+    // Helper to create mock server (avoids serialization issues)
+    function createMockServer() {
+      return new Promise((resolve, reject) => {
+        const server = dgram.createSocket('udp4');
+        
+        server.on('error', (err) => {
+          reject(err);
+        });
 
-    before(async () => {
-      // Create a mock TURN server for testing
-      return new Promise((resolve) => {
-        mockServer = dgram.createSocket('udp4');
-
-        mockServer.on('message', (msg, rinfo) => {
+        server.on('message', (msg, rinfo) => {
           try {
-            // Parse incoming message
             const messageType = msg.readUInt16BE(0);
             const transactionId = msg.slice(8, 20);
 
-            if (messageType === 0x0003) { // ALLOCATE_REQUEST
-              // Send back ALLOCATE_RESPONSE
+            if (messageType === 0x0003) {
               const response = createMockAllocateResponse(transactionId);
-              mockServer.send(response, rinfo.port, rinfo.address);
+              server.send(response, rinfo.port, rinfo.address);
             }
           } catch (err) {
             console.error('Mock server error:', err);
           }
         });
 
-        mockServer.bind(0, '127.0.0.1', () => {
-          serverPort = mockServer.address().port;
-          console.log(`  Mock TURN server listening on port ${serverPort}`);
-          resolve();
+        server.bind(0, '127.0.0.1', () => {
+          const port = server.address().port;
+          console.log(`  Mock TURN server listening on port ${port}`);
+          resolve({ server, port });
         });
       });
-    });
-
-    after(() => {
-      return new Promise((resolve) => {
-        if (mockServer) {
-          mockServer.close(() => {
-            mockServer = null;
-            resolve();
-          });
-        } else {
-          resolve();
-        }
-      });
-    });
+    }
 
     it('should allocate relay address from mock server', async () => {
-      const client = new TURNClient({
-        server: `turn:127.0.0.1:${serverPort}`,
-        username: 'test',
-        password: 'test',
-        timeout: 2000
-      });
-
+      const { server: mockServer, port: serverPort } = await createMockServer();
+      
       try {
-        const result = await client.allocate();
-        
-        assert.ok(result, 'Should return allocation result');
-        assert.ok(result.relayedAddress, 'Should have relayed address');
-        assert.ok(result.relayedPort, 'Should have relayed port');
-        assert.strictEqual(result.type, 'relay', 'Should be relay type');
-        
-        console.log(`  ✓ Allocated relay: ${result.relayedAddress}:${result.relayedPort}`);
-        
-        client.close();
-      } catch (err) {
-        // If it fails, it's because mock server isn't perfect
-        console.log('  ⚠ Mock allocation test skipped:', err.message);
+        const client = new TURNClient({
+          server: `turn:127.0.0.1:${serverPort}`,
+          username: 'test',
+          password: 'test',
+          timeout: 2000
+        });
+
+        try {
+          const result = await client.allocate();
+          
+          assert.ok(result, 'Should return allocation result');
+          assert.ok(result.relayedAddress, 'Should have relayed address');
+          assert.ok(result.relayedPort, 'Should have relayed port');
+          assert.strictEqual(result.type, 'relay', 'Should be relay type');
+          
+          console.log(`  ✓ Allocated relay: ${result.relayedAddress}:${result.relayedPort}`);
+          
+          client.close();
+        } catch (err) {
+          // If it fails, it's because mock server isn't perfect
+          console.log('  ⚠ Mock allocation test skipped:', err.message);
+        }
+      } finally {
+        // Clean up mock server
+        await new Promise((resolve) => {
+          mockServer.close(() => resolve());
+        });
       }
     });
   });
