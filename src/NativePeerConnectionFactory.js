@@ -100,6 +100,9 @@ class NativePeerConnection extends EventEmitter {
     this._secureConnection = null;
     this._udpTransport = null;
     this._iceCandidates = [];
+    this._remoteCandidates = [];
+    this._selectedLocalCandidate = null;
+    this._selectedRemoteCandidate = null;
     
     console.log('[NativePeerConnection] Created with STUN/ICE/Encryption support');
     console.log(`  - Encryption: ${this._useEncryption ? 'enabled' : 'disabled (requires valid certs)'}`);
@@ -245,22 +248,106 @@ class NativePeerConnection extends EventEmitter {
     }
 
     if (!candidate || !candidate.candidate) {
+      // null candidate signals end of candidates - try to select best pair
+      if (this._remoteCandidates.length > 0 && !this._selectedRemoteCandidate) {
+        this._selectBestCandidatePair();
+      }
       return;
     }
 
-    // Parse ICE candidate to extract address and port
-    const parts = candidate.candidate.split(' ');
-    if (parts.length >= 6) {
-      this._remoteAddress = parts[4];
-      this._remotePort = parseInt(parts[5], 10);
+    // Parse ICE candidate
+    const parsed = this._parseIceCandidate(candidate.candidate);
+    if (!parsed) {
+      return;
+    }
+
+    // Store the remote candidate
+    this._remoteCandidates.push(parsed);
+    console.log(`[NativePeerConnection] Added remote ICE candidate (${parsed.type}): ${parsed.ip}:${parsed.port}`);
+
+    // For backward compatibility, set remote address immediately if not set
+    if (!this._remoteAddress) {
+      this._remoteAddress = parsed.ip;
+      this._remotePort = parsed.port;
       console.log(`[NativePeerConnection] Remote address: ${this._remoteAddress}:${this._remotePort}`);
-      
-      // If we have both local and remote info, and we're offerer, connect
-      if (this._isOfferer && this._localAddress && this._remoteAddress && 
-          this._signalingState === 0 && !this._socket) {
-        await this._connectToPeer();
+    }
+
+    // If we haven't selected a pair yet, try to select now
+    if (!this._selectedRemoteCandidate && this._iceCandidates.length > 0) {
+      this._selectBestCandidatePair();
+    }
+
+    // If we selected a pair and are offerer, connect
+    if (this._selectedRemoteCandidate && this._isOfferer && 
+        this._signalingState === 0 && !this._socket) {
+      await this._connectToPeer();
+    }
+  }
+
+  /**
+   * Parse ICE candidate string
+   * @private
+   */
+  _parseIceCandidate(candidateStr) {
+    const parts = candidateStr.split(' ');
+    if (parts.length < 6) {
+      return null;
+    }
+
+    return {
+      foundation: parts[0].replace('candidate:', ''),
+      component: parts[1],
+      protocol: parts[2],
+      priority: parseInt(parts[3], 10),
+      ip: parts[4],
+      port: parseInt(parts[5], 10),
+      type: parts[7], // typ host/srflx/relay
+      relatedAddress: parts[9] || null,
+      relatedPort: parts[11] ? parseInt(parts[11], 10) : null
+    };
+  }
+
+  /**
+   * Select best candidate pair for connection
+   * Prioritizes: relay > srflx > host
+   * @private
+   */
+  _selectBestCandidatePair() {
+    if (this._remoteCandidates.length === 0 || this._iceCandidates.length === 0) {
+      return;
+    }
+
+    // Priority order: relay > srflx > host
+    const typePriority = { 'relay': 3, 'srflx': 2, 'host': 1 };
+
+    // Find best local candidate
+    let bestLocal = this._iceCandidates[0];
+    for (const candidate of this._iceCandidates) {
+      if (typePriority[candidate.type] > typePriority[bestLocal.type]) {
+        bestLocal = candidate;
       }
     }
+
+    // Find best remote candidate
+    let bestRemote = this._remoteCandidates[0];
+    for (const candidate of this._remoteCandidates) {
+      if (typePriority[candidate.type] > typePriority[bestRemote.type]) {
+        bestRemote = candidate;
+      }
+    }
+
+    this._selectedLocalCandidate = bestLocal;
+    this._selectedRemoteCandidate = bestRemote;
+
+    // Update addresses for connection
+    this._localAddress = bestLocal.ip;
+    this._localPort = bestLocal.port;
+    this._remoteAddress = bestRemote.ip;
+    this._remotePort = bestRemote.port;
+
+    console.log(`[NativePeerConnection] Selected candidate pair:`);
+    console.log(`  Local: ${bestLocal.type} ${this._localAddress}:${this._localPort}`);
+    console.log(`  Remote: ${bestRemote.type} ${this._remoteAddress}:${this._remotePort}`);
   }
 
   /**
@@ -396,14 +483,24 @@ class NativePeerConnection extends EventEmitter {
       return;
     }
 
-    // Tie-breaking: only connect if our port is higher than remote port
-    // This ensures only one peer connects, avoiding the race condition
-    if (this._localPort < this._remotePort) {
-      console.log(`[NativePeerConnection] Not connecting (local port ${this._localPort} < remote port ${this._remotePort}), waiting for incoming`);
-      return;
+    // Check if we're using relay candidates - if so, skip tie-breaking
+    const usingRelay = this._selectedLocalCandidate?.type === 'relay' || 
+                       this._selectedRemoteCandidate?.type === 'relay';
+
+    if (!usingRelay) {
+      // Tie-breaking: only connect if our port is higher than remote port
+      // This ensures only one peer connects, avoiding the race condition
+      // Note: This only works for direct connections (host/srflx)
+      if (this._localPort < this._remotePort) {
+        console.log(`[NativePeerConnection] Not connecting (local port ${this._localPort} < remote port ${this._remotePort}), waiting for incoming`);
+        return;
+      }
     }
 
     console.log(`[NativePeerConnection] Connecting to ${this._remoteAddress}:${this._remotePort}`);
+    if (usingRelay) {
+      console.log(`[NativePeerConnection] Using TURN relay connection`);
+    }
     
     this._socket = new net.Socket();
     
@@ -696,7 +793,12 @@ a=max-message-size:262144
       
       // Emit each candidate
       for (const candidate of candidates) {
-        this._iceCandidates.push(candidate);
+        // Parse and store the candidate
+        const parsed = this._parseIceCandidate(candidate.candidate);
+        if (parsed) {
+          this._iceCandidates.push(parsed);
+        }
+
         this.emit('icecandidate', {
           candidate: candidate.candidate,
           sdpMid: candidate.sdpMid,
@@ -710,8 +812,14 @@ a=max-message-size:262144
       
       // Fallback: emit only local host candidate
       if (this._localAddress && this._localPort) {
+        const candidateStr = `candidate:1 1 tcp 2130706431 ${this._localAddress} ${this._localPort} typ host`;
+        const parsed = this._parseIceCandidate(candidateStr);
+        if (parsed) {
+          this._iceCandidates.push(parsed);
+        }
+
         const candidate = {
-          candidate: `candidate:1 1 tcp 2130706431 ${this._localAddress} ${this._localPort} typ host`,
+          candidate: candidateStr,
           sdpMid: 'data',
           sdpMLineIndex: 0
         };
