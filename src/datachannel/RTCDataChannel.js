@@ -278,12 +278,12 @@ class RTCDataChannel extends EventEmitter {
 
     this._setState(RTCDataChannelState.CLOSING);
     
-    // Transition to closed after a short delay
-    setTimeout(() => {
+    // Transition to closed asynchronously
+    setImmediate(() => {
       if (this._readyState === RTCDataChannelState.CLOSING) {
         this._setState(RTCDataChannelState.CLOSED);
       }
-    }, 10);
+    });
   }
 
   /**

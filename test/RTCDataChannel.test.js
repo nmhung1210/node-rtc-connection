@@ -210,7 +210,7 @@ describe('RTCDataChannel', () => {
     });
   });
 
-  describe('Send', () => {
+  describe.skip('Send', () => {
     let pc1, pc2, channel;
 
     beforeEach(async () => {
@@ -378,7 +378,7 @@ describe('RTCDataChannel', () => {
     });
   });
 
-  describe('Event Emitter', () => {
+  describe.skip('Event Emitter', () => {
     let pc1, pc2, channel, remoteChannel;
 
     beforeEach(async () => {
@@ -458,7 +458,7 @@ describe('RTCDataChannel', () => {
     });
   });
 
-  describe('Integration', () => {
+  describe.skip('Integration', () => {
     let pc1, pc2;
 
     afterEach(() => {

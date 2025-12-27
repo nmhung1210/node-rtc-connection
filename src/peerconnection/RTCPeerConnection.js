@@ -732,10 +732,10 @@ class RTCPeerConnection extends EventEmitter {
       this._sctpTransport.close();
     }
     if (this._dtlsTransport) {
-      // DTLS transport doesn't have stop method, it closes with ICE
+      this._dtlsTransport.close();
     }
     if (this._iceTransport) {
-      // ICE transport doesn't have stop method in current implementation
+      this._iceTransport.stop();
     }
 
     this.emit('signalingstatechange');

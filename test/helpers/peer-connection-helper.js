@@ -28,19 +28,26 @@ async function createConnectedPeers(channelLabel = 'test') {
   await pc2.setLocalDescription(answer);
   await pc1.setRemoteDescription(answer);
   
-  // Wait for both channels to open
-  await Promise.all([
-    new Promise(r => {
-      if (channel1.readyState === 'open') r();
-      else channel1.once('open', r);
-    }),
-    new Promise(r => {
-      const wait = () => {
-        if (channel2 && channel2.readyState === 'open') r();
-        else setTimeout(wait, 10);
-      };
-      wait();
-    })
+  // Wait for both channels to open with timeout
+  await Promise.race([
+    Promise.all([
+      new Promise(r => {
+        if (channel1.readyState === 'open') r();
+        else channel1.once('open', r);
+      }),
+      new Promise(r => {
+        let timeoutId;
+        const wait = () => {
+          if (channel2 && channel2.readyState === 'open') {
+            r();
+          } else {
+            timeoutId = setTimeout(wait, 10);
+          }
+        };
+        wait();
+      })
+    ]),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for channels to open')), 5000))
   ]);
   
   return { pc1, pc2, channel1, channel2 };

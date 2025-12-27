@@ -37,9 +37,9 @@ describe('RTCIceTransport', () => {
   });
 
   describe('gather', () => {
-    it('should generate local parameters', () => {
+    it('should generate local parameters', async () => {
       const transport = new RTCIceTransport();
-      transport.gather();
+      await transport.gather();
       
       const params = transport.getLocalParameters();
       assert.ok(params !== null);
@@ -47,22 +47,24 @@ describe('RTCIceTransport', () => {
       assert.ok(params.usernameFragment.length > 0);
       assert.ok(typeof params.password === 'string');
       assert.ok(params.password.length > 0);
+      
+      transport.stop();
     });
 
-    it('should transition to gathering state', (t, done) => {
+    it('should transition to gathering state', async () => {
       const transport = new RTCIceTransport();
       
       let gatheringStateChanged = false;
       transport.on('gatheringstatechange', () => {
         if (transport.gatheringState === RTCIceGatheringState.GATHERING) {
           gatheringStateChanged = true;
-        } else if (transport.gatheringState === RTCIceGatheringState.COMPLETE) {
-          assert.ok(gatheringStateChanged);
-          done();
         }
       });
       
-      transport.gather();
+      await transport.gather();
+      
+      assert.ok(gatheringStateChanged);
+      transport.stop();
     });
 
     it('should throw if transport is closed', async () => {
@@ -92,6 +94,8 @@ describe('RTCIceTransport', () => {
       const storedRemote = transport.getRemoteParameters();
       assert.strictEqual(storedRemote.usernameFragment, 'remotefrag');
       assert.strictEqual(storedRemote.password, 'remotepass123');
+      
+      transport.stop();
     });
 
     it('should generate local parameters if not gathered', () => {
@@ -107,6 +111,8 @@ describe('RTCIceTransport', () => {
       assert.ok(localParams !== null);
       assert.ok(localParams.usernameFragment.length > 0);
       assert.ok(localParams.password.length > 0);
+      
+      transport.stop();
     });
 
     it('should emit statechange event', (t, done) => {
@@ -116,12 +122,21 @@ describe('RTCIceTransport', () => {
         password: 'remotepass123'
       };
       
+      let stateChanged = false;
       transport.on('statechange', () => {
-        assert.strictEqual(transport.state, RTCIceTransportState.CHECKING);
-        done();
+        if (transport.state === RTCIceTransportState.CHECKING) {
+          stateChanged = true;
+        }
       });
       
       transport.start(remoteParams, RTCIceRole.CONTROLLING);
+      
+      // Use setImmediate to allow event to fire
+      setImmediate(() => {
+        assert.ok(stateChanged, 'State should have changed to checking');
+        transport.stop();
+        done();
+      });
     });
 
     it('should throw if role is invalid', () => {
@@ -207,6 +222,8 @@ describe('RTCIceTransport', () => {
       const remoteCandidates = transport.getRemoteCandidates();
       assert.strictEqual(remoteCandidates.length, 1);
       assert.deepStrictEqual(remoteCandidates[0], candidate);
+      
+      transport.stop();
     });
 
     it('should throw if not started', () => {
@@ -218,6 +235,8 @@ describe('RTCIceTransport', () => {
       assert.throws(() => {
         transport.addRemoteCandidate(candidate);
       }, /not started/);
+      
+      transport.stop();
     });
 
     it('should throw if transport is closed', () => {
@@ -243,7 +262,9 @@ describe('RTCIceTransport', () => {
       
       assert.throws(() => {
         transport.addRemoteCandidate(null);
-      }, TypeError);
+      }, TypeError);      
+      transport.stop();      
+      transport.stop();
     });
   });
 
@@ -304,17 +325,21 @@ describe('RTCIceTransport', () => {
       transport._setState(RTCIceTransportState.NEW);
       
       assert.strictEqual(eventCount, 0);
+      
+      transport.stop();
     });
 
-    it('should return copies of parameters', () => {
+    it('should return copies of parameters', async () => {
       const transport = new RTCIceTransport();
-      transport.gather();
+      await transport.gather();
       
       const params1 = transport.getLocalParameters();
       const params2 = transport.getLocalParameters();
       
       assert.notStrictEqual(params1, params2); // Different objects
       assert.deepStrictEqual(params1, params2); // Same values
+      
+      transport.stop();
     });
 
     it('should return copies of candidate lists', () => {
@@ -335,6 +360,8 @@ describe('RTCIceTransport', () => {
       
       assert.notStrictEqual(list1, list2); // Different arrays
       assert.deepStrictEqual(list1, list2); // Same contents
+      
+      transport.stop();
     });
   });
 
