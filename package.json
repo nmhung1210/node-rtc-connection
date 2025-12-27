@@ -1,6 +1,6 @@
 {
   "name": "node-rtc-connection",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "WebRTC DataChannel implementation for Node.js with STUN, TURN, NAT traversal, and encryption. Pure Node.js, no native dependencies.",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
