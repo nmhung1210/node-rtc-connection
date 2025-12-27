@@ -616,10 +616,11 @@ class RTCPeerConnection extends EventEmitter {
       if (this._sctpTransport.state === 'connected') {
         for (const channel of this._dataChannels.values()) {
           if (channel.readyState === 'connecting') {
-            channel._setStateToOpen();
-            
-            // Hook up channel to network transport
+            // Hook up channel to network transport first
             this._connectChannelToNetwork(channel);
+            
+            // Then set state to open (emits 'open' event)
+            channel._setStateToOpen();
           }
         }
       }
