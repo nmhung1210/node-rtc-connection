@@ -64,12 +64,19 @@ class ICEGatherer {
 
     for (const [name, addrs] of Object.entries(interfaces)) {
       for (const addr of addrs) {
-        // Skip internal and IPv6 for now
-        if (addr.internal || addr.family !== 'IPv4') {
+        // Skip internal/loopback addresses
+        if (addr.internal) {
           continue;
         }
 
-        const priority = this._calculatePriority('host', 65535, foundation);
+        // Support both IPv4 and IPv6
+        if (addr.family !== 'IPv4' && addr.family !== 'IPv6') {
+          continue;
+        }
+
+        // Calculate priority (IPv4 slightly higher than IPv6)
+        const typePreference = addr.family === 'IPv4' ? 65535 : 65534;
+        const priority = this._calculatePriority('host', typePreference, foundation);
         
         candidates.push({
           candidate: `candidate:${foundation} 1 udp ${priority} ${addr.address} ${port} typ host`,
@@ -167,10 +174,19 @@ class ICEGatherer {
   _getLocalIPForRemote() {
     const interfaces = os.networkInterfaces();
     
-    // Prefer non-internal IPv4 addresses
+    // Prefer non-internal IPv4 addresses first
     for (const [name, addrs] of Object.entries(interfaces)) {
       for (const addr of addrs) {
         if (!addr.internal && addr.family === 'IPv4') {
+          return addr.address;
+        }
+      }
+    }
+    
+    // Fall back to IPv6 if no IPv4 available
+    for (const [name, addrs] of Object.entries(interfaces)) {
+      for (const addr of addrs) {
+        if (!addr.internal && addr.family === 'IPv6') {
           return addr.address;
         }
       }
