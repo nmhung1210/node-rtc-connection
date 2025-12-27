@@ -225,6 +225,16 @@ class RTCPeerConnection extends EventEmitter {
    * @private
    */
   _openDataChannels() {
+    // Check if network transport has active connections
+    const hasConnections = this._networkTransport && 
+                          this._networkTransport.tcpTransport && 
+                          this._networkTransport.tcpTransport.connections.size > 0;
+    
+    if (!hasConnections) {
+      // Network not ready yet, channels will be opened when connection establishes
+      return;
+    }
+
     for (const channel of this._dataChannels.values()) {
       if (channel.readyState === 'connecting') {
         this._connectChannelToNetwork(channel);
@@ -614,15 +624,8 @@ class RTCPeerConnection extends EventEmitter {
     // Open data channels when connection is established
     this._sctpTransport.once('statechange', () => {
       if (this._sctpTransport.state === 'connected') {
-        for (const channel of this._dataChannels.values()) {
-          if (channel.readyState === 'connecting') {
-            // Hook up channel to network transport first
-            this._connectChannelToNetwork(channel);
-            
-            // Then set state to open (emits 'open' event)
-            channel._setStateToOpen();
-          }
-        }
+        // Wait for network to be ready before opening channels
+        this._openDataChannels();
       }
     });
   }
