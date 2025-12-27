@@ -3,6 +3,16 @@ const RTCDataChannel = require('./RTCDataChannel');
 const RTCSessionDescription = require('./RTCSessionDescription');
 const RTCIceCandidate = require('./RTCIceCandidate');
 
+// Lazy-load factory to avoid circular dependency
+let _defaultFactory = null;
+function getDefaultFactory() {
+  if (!_defaultFactory) {
+    const NativePeerConnectionFactory = require('./NativePeerConnectionFactory');
+    _defaultFactory = new NativePeerConnectionFactory();
+  }
+  return _defaultFactory;
+}
+
 /**
  * RTCPeerConnection represents a WebRTC connection between the local computer and a remote peer.
  * This is a DataChannel-only implementation ported from Chromium.
@@ -25,7 +35,8 @@ class RTCPeerConnection extends EventEmitter {
     
     // Native peer connection (would be native WebRTC binding)
     this._nativePeerConnection = null;
-    this._nativePeerConnectionFactory = nativePeerConnectionFactory;
+    // Use provided factory or default factory
+    this._nativePeerConnectionFactory = nativePeerConnectionFactory || getDefaultFactory();
     
     // Initialize native peer connection
     this._initializeNativePeerConnection();

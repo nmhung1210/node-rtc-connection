@@ -40,6 +40,7 @@ function createPeerConnectionWithFactory(configuration, factory) {
 module.exports = {
   // Main API
   RTCPeerConnection,
+  RTCConnection: RTCPeerConnection, // Alias for convenience
   createPeerConnection,
   createPeerConnectionWithFactory,
   
