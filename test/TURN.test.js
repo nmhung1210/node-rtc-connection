@@ -92,39 +92,45 @@ describe('TURN Client and Server', () => {
         server: 'turn:localhost:3478'
       });
       
-      client.socket = dgram.createSocket('udp4');
+      const socket = dgram.createSocket('udp4');
+      client.socket = socket;
       client.close();
       
       assert.strictEqual(client.socket, null, 'Socket should be null');
       assert.strictEqual(client.allocation, null, 'Allocation should be null');
+      
+      // Ensure socket is closed
+      if (!socket.destroyed) {
+        socket.close();
+      }
     });
   });
 
   describe('Mock TURN Server', () => {
-    let mockServer;
-    let serverPort;
+    let mockServer = null;
+    let serverPort = 0;
 
     before(async () => {
       // Create a mock TURN server for testing
-      mockServer = dgram.createSocket('udp4');
+      return new Promise((resolve) => {
+        mockServer = dgram.createSocket('udp4');
 
-      mockServer.on('message', (msg, rinfo) => {
-        try {
-          // Parse incoming message
-          const messageType = msg.readUInt16BE(0);
-          const transactionId = msg.slice(8, 20);
+        mockServer.on('message', (msg, rinfo) => {
+          try {
+            // Parse incoming message
+            const messageType = msg.readUInt16BE(0);
+            const transactionId = msg.slice(8, 20);
 
-          if (messageType === 0x0003) { // ALLOCATE_REQUEST
-            // Send back ALLOCATE_RESPONSE
-            const response = createMockAllocateResponse(transactionId);
-            mockServer.send(response, rinfo.port, rinfo.address);
+            if (messageType === 0x0003) { // ALLOCATE_REQUEST
+              // Send back ALLOCATE_RESPONSE
+              const response = createMockAllocateResponse(transactionId);
+              mockServer.send(response, rinfo.port, rinfo.address);
+            }
+          } catch (err) {
+            console.error('Mock server error:', err);
           }
-        } catch (err) {
-          console.error('Mock server error:', err);
-        }
-      });
+        });
 
-      await new Promise((resolve) => {
         mockServer.bind(0, '127.0.0.1', () => {
           serverPort = mockServer.address().port;
           console.log(`  Mock TURN server listening on port ${serverPort}`);
@@ -134,9 +140,16 @@ describe('TURN Client and Server', () => {
     });
 
     after(() => {
-      if (mockServer) {
-        mockServer.close();
-      }
+      return new Promise((resolve) => {
+        if (mockServer) {
+          mockServer.close(() => {
+            mockServer = null;
+            resolve();
+          });
+        } else {
+          resolve();
+        }
+      });
     });
 
     it('should allocate relay address from mock server', async () => {
