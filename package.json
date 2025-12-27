@@ -31,7 +31,10 @@
     "example": "node examples/real-networking.js",
     "example:simple": "node examples/simple-datachannel.js",
     "example:stun": "node examples/with-stun-encryption.js",
-    "example:turn": "node examples/with-turn-relay.js"
+    "example:turn": "node examples/with-turn-relay.js",
+    "release:patch": "npm version patch && git push && git push --tags",
+    "release:minor": "npm version minor && git push && git push --tags",
+    "release:major": "npm version major && git push && git push --tags"
   },
   "keywords": [
     "webrtc",
