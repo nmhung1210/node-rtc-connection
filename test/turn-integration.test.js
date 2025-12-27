@@ -219,8 +219,8 @@ describe('TURN Integration Tests', () => {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        // Wait for ICE gathering
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        // Wait for ICE gathering (longer to catch all candidates including TURN)
+        await new Promise(resolve => setTimeout(resolve, 6000));
 
         console.log(`  Host candidates: ${candidates.host.length}`);
         console.log(`  Srflx candidates: ${candidates.srflx.length}`);

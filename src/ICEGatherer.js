@@ -187,21 +187,27 @@ class ICEGatherer {
     const candidates = [];
     
     if (this.turnServers.length === 0) {
+      console.log('[ICEGatherer] No TURN servers configured');
       return candidates;
     }
+
+    console.log(`[ICEGatherer] Querying ${this.turnServers.length} TURN server(s) for relay candidates...`);
 
     const turnPromises = [];
 
     // Try TURN servers
     for (const turnConfig of this.turnServers) {
       const promise = this._queryTURNServer(turnConfig, localPort)
-        .catch(err => null); // Ignore individual failures
+        .catch(err => {
+          console.warn(`[ICEGatherer] TURN query failed: ${err.message}`);
+          return null;
+        });
       turnPromises.push(promise);
     }
 
-    // Wait for first successful response
+    // Wait for first successful response or timeout
     const results = await Promise.race([
-      Promise.any(turnPromises.filter(p => p)),
+      ...turnPromises,
       new Promise(resolve => setTimeout(() => resolve(null), this.gatherTimeout))
     ]);
 
@@ -210,6 +216,8 @@ class ICEGatherer {
       const priority = this._calculatePriority('relay', 65535, foundation);
 
       const localIp = this._getLocalIPForRemote();
+
+      console.log(`[ICEGatherer] Got TURN relay: ${results.relayedAddress}:${results.relayedPort}`);
 
       candidates.push({
         candidate: `candidate:${foundation} 1 udp ${priority} ${results.relayedAddress} ${results.relayedPort} typ relay raddr ${localIp} rport ${localPort}`,
@@ -226,6 +234,8 @@ class ICEGatherer {
         relatedAddress: localIp,
         relatedPort: localPort
       });
+    } else {
+      console.log('[ICEGatherer] No relay candidates obtained from TURN servers');
     }
 
     return candidates;

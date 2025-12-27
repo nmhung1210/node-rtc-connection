@@ -95,7 +95,8 @@ class NativePeerConnection extends EventEmitter {
     this._useEncryption = this._configuration.encryption === true; // Disabled by default
     this._useUDP = this._configuration.transport === 'udp';
     this._iceGatherer = new ICEGatherer({
-      stunServers: this._extractSTUNServers(this._configuration)
+      stunServers: this._extractSTUNServers(this._configuration),
+      turnServers: this._extractTURNServers(this._configuration)
     });
     this._secureConnection = null;
     this._udpTransport = null;
@@ -130,6 +131,37 @@ class NativePeerConnection extends EventEmitter {
     }
     
     return stunServers.length > 0 ? stunServers : undefined;
+  }
+
+  /**
+   * Extract TURN servers from configuration
+   * @private
+   */
+  _extractTURNServers(config) {
+    const turnServers = [];
+    
+    if (config.iceServers) {
+      for (const server of config.iceServers) {
+        if (server.urls) {
+          const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+          for (const url of urls) {
+            if (url.startsWith('turn:')) {
+              turnServers.push({
+                urls: url,
+                username: server.username,
+                credential: server.credential
+              });
+            }
+          }
+        }
+      }
+    }
+    
+    if (turnServers.length > 0) {
+      console.log(`[NativePeerConnection] Configured ${turnServers.length} TURN server(s)`);
+    }
+    
+    return turnServers;
   }
 
   /**
