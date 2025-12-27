@@ -1,82 +1,93 @@
 # NodeRTC - WebRTC DataChannels for Node.js
 
-A production-ready WebRTC DataChannel implementation for Node.js with **real networking**, **STUN support**, and **optional encryption**. Built with pure Node.js - no native dependencies required.
+[![npm version](https://badge.fury.io/js/nodertc.svg)](https://www.npmjs.com/package/nodertc)
+[![Node.js CI](https://github.com/nmhung1210/nodertc/workflows/Test/badge.svg)](https://github.com/nmhung1210/nodertc/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A production-ready WebRTC DataChannel implementation for Node.js with **real networking**, **STUN/TURN support**, **MESSAGE-INTEGRITY authentication**, and **optional encryption**. Built with pure Node.js - no native dependencies required.
 
 ## Overview
 
-NodeRTC provides WebRTC-style peer-to-peer data connections using Node.js built-in modules. It supports NAT traversal via STUN, optional TLS encryption, and works across the internet for most network configurations.
+NodeRTC provides WebRTC-style peer-to-peer data connections using Node.js built-in modules. It supports NAT traversal via STUN/TURN servers with full RFC 5766 MESSAGE-INTEGRITY authentication, optional TLS encryption, and works across the internet for most network configurations.
 
 ## Features
 
 - ✅ **RTCPeerConnection** - Full peer connection lifecycle
 - ✅ **RTCDataChannel** - Bidirectional data channels
 - ✅ **STUN Support** - NAT traversal with public STUN servers
-- ✅ **ICE Candidates** - Host and server reflexive candidates
+- ✅ **TURN Support** - Relay through TURN servers (RFC 5766)
+- ✅ **MESSAGE-INTEGRITY** - Full authentication support for TURN
+- ✅ **ICE Candidates** - Host, server reflexive, and relay candidates
 - ✅ **TLS Encryption** - Optional secure connections
 - ✅ **Real Networking** - TCP/UDP with actual peer-to-peer communication
 - ✅ **Event-based API** - Built on Node.js EventEmitter
 - ✅ **Zero Dependencies** - Pure Node.js, no native modules
+- ✅ **Docker TURN Server** - Included for testing and development
 - ❌ **No Media Support** - DataChannel only (no audio/video)
-
-## Architecture
-
-### Ported Classes
-
-The following classes were ported from `cc/` (Chromium C++ source):
-
-- `RTCPeerConnection` - Main peer connection class (from `rtc_peer_connection.cc/h`)
-- `RTCDataChannel` - Data channel implementation (from `rtc_data_channel.cc/h`)
-- `RTCSessionDescription` - Session description wrapper (from `rtc_session_description.cc/h`)
-- `RTCIceCandidate` - ICE candidate representation (from `rtc_ice_candidate.cc/h`)
-- Event classes: `RTCDataChannelEvent`, `RTCPeerConnectionIceEvent`, `RTCError`
-
-### File Structure
-
-```
-src/
-├── index.js                        # Main entry point and exports
-├── RTCPeerConnection.js           # PeerConnection implementation
-├── RTCDataChannel.js              # DataChannel implementation
-├── RTCSessionDescription.js       # Session description
-├── RTCIceCandidate.js             # ICE candidate
-├── RTCDataChannelEvent.js         # DataChannel events
-├── RTCPeerConnectionIceEvent.js   # ICE events
-├── RTCError.js                    # Error classes
-└── NativePeerConnectionFactory.js # Native binding factory (mock)
-```
 
 ## Installation
 
 ```bash
-npm install
+npm install nodertc
 ```
 
 ## Quick Start
 
-### With STUN and Encryption (Recommended)
+### Basic Usage
 
 ```javascript
-const { createPeerConnection } = require('./src');
-
-// Configuration
-const config = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' }
-  ],
-  encryption: true,  // Enable TLS encryption
-  transport: 'tcp'   // Use TCP (or 'udp')
-};
+const { createPeerConnection } = require('nodertc');
 
 // Create peer connection
-const pc = createPeerConnection(config);
+const pc = createPeerConnection();
 
 // Create a data channel
 const channel = pc.createDataChannel('myChannel');
 
 channel.on('open', () => {
-  console.log('DataChannel opened (encrypted)');
-  channel.send('Hello, secure peer!');
+  console.log('DataChannel opened');
+  channel.send('Hello, peer!');
 });
+
+channel.on('message', (event) => {
+  console.log('Received:', event.data.toString());
+});
+
+// Handle ICE candidates
+pc.on('icecandidate', (event) => {
+  if (event.candidate) {
+    // Send to remote peer via signaling
+  }
+});
+
+// Create and set local description
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+```
+
+### With STUN and TURN (Recommended)
+
+```javascript
+const { createPeerConnection } = require('nodertc');
+
+// Configuration with STUN and TURN
+const config = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    {
+      urls: 'turn:turn.example.com:3478',
+      username: 'username',
+      credential: 'password'
+    }
+  ],
+  encryption: false,  // Optional TLS encryption
+  transport: 'tcp'    // Use TCP (or 'udp')
+};
+
+// Create peer connection
+const pc = createPeerConnection(config);
+
+// Rest is the same as basic usage...
 
 channel.on('message', (event) => {
   console.log('Received:', event.data.toString());
@@ -339,24 +350,44 @@ PC2: Sending reply...
 📨 PC1 received: Hello from Peer 2! Nice to meet you.
 ```
 
-### For Production Use
+## Development & Contributing
 
-To use this with real WebRTC functionality, replace `NativePeerConnectionFactory` with a native binding to a WebRTC library:
+### Setup
 
-1. **node-webrtc** - Native WebRTC bindings for Node.js
-2. **wrtc** - WebRTC implementation for Node.js
-3. Custom native addon using libwebrtc
-
-Example with node-webrtc:
-```javascript
-const wrtc = require('wrtc');
-const { RTCPeerConnection } = require('./src');
-
-// Use native RTCPeerConnection
-const pc = new wrtc.RTCPeerConnection({
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-});
+```bash
+git clone https://github.com/nmhung1210/nodertc.git
+cd nodertc
+npm install
 ```
+
+### Testing
+
+```bash
+# Run all tests
+npm test
+
+# Run specific test suites
+npm run test:stun      # STUN tests
+npm run test:turn      # TURN tests
+npm run test:integration  # Integration tests
+```
+
+### Building
+
+```bash
+npm run build
+```
+
+This creates CommonJS and ES Module bundles in `dist/`.
+
+### CI/CD
+
+This project uses GitHub Actions for automated testing and publishing:
+
+- **Test Workflow**: Runs on push/PR, tests on Node.js 18.x, 20.x, 22.x
+- **Publish Workflow**: Triggers on version tags, automatically publishes to NPM
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed publishing instructions.
 
 ## Differences from Browser WebRTC
 
@@ -374,9 +405,13 @@ const pc = new wrtc.RTCPeerConnection({
 - No dependency on browser APIs
 - Synchronous where possible (async only for native operations)
 
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
 ## License
 
-ISC
+MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Credits
 
@@ -384,3 +419,9 @@ Ported from Chromium's WebRTC implementation:
 - Original source: `third_party/blink/renderer/modules/peerconnection/`
 - Copyright (C) 2012 Google Inc.
 
+## Links
+
+- [NPM Package](https://www.npmjs.com/package/nodertc)
+- [GitHub Repository](https://github.com/nmhung1210/nodertc)
+- [Issues](https://github.com/nmhung1210/nodertc/issues)
+- [Contributing Guide](CONTRIBUTING.md)

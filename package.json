@@ -1,9 +1,24 @@
 {
   "name": "nodertc",
   "version": "1.0.0",
-  "description": "WebRTC DataChannel implementation for Node.js with STUN, NAT traversal, and encryption. Pure Node.js, no native dependencies.",
-  "main": "src/index.js",
+  "description": "WebRTC DataChannel implementation for Node.js with STUN, TURN, NAT traversal, and encryption. Pure Node.js, no native dependencies.",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "exports": {
+    ".": {
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "build": "rollup -c",
+    "prepublishOnly": "npm run build && npm test",
     "test": "node test/run-all-tests.js",
     "test:watch": "node --test --watch test/*.test.js",
     "test:unit": "SKIP_INTEGRATION=1 node --test test/*.test.js",
@@ -26,22 +41,30 @@
     "p2p",
     "real-time",
     "stun",
+    "turn",
     "nat-traversal",
     "ice",
     "encryption",
     "tls",
+    "dtls",
+    "relay",
     "peer-to-peer"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "nmhung1210",
+  "license": "MIT",
   "type": "commonjs",
   "engines": {
     "node": ">=14.0.0"
   },
-  "dependencies": {},
-  "devDependencies": {},
+  "devDependencies": {
+    "rollup": "^4.54.0"
+  },
   "repository": {
     "type": "git",
-    "url": ""
-  }
+    "url": "git+https://github.com/nmhung1210/nodertc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nmhung1210/nodertc/issues"
+  },
+  "homepage": "https://github.com/nmhung1210/nodertc#readme"
 }
