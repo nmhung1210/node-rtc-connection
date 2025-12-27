@@ -1,6 +1,6 @@
-# NodeRTC - WebRTC DataChannels for Node.js
+# node-rtc-connection - WebRTC DataChannels for Node.js
 
-[![npm version](https://badge.fury.io/js/nodertc.svg)](https://www.npmjs.com/package/nodertc)
+[![npm version](https://badge.fury.io/js/node-rtc-connection.svg)](https://www.npmjs.com/package/node-rtc-connection)
 [![Node.js CI](https://github.com/nmhung1210/nodertc/workflows/Test/badge.svg)](https://github.com/nmhung1210/nodertc/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -8,7 +8,7 @@ A production-ready WebRTC DataChannel implementation for Node.js with **real net
 
 ## Overview
 
-NodeRTC provides WebRTC-style peer-to-peer data connections using Node.js built-in modules. It supports NAT traversal via STUN/TURN servers with full RFC 5766 MESSAGE-INTEGRITY authentication, optional TLS encryption, and works across the internet for most network configurations.
+node-rtc-connection provides WebRTC-style peer-to-peer data connections using Node.js built-in modules. It supports NAT traversal via STUN/TURN servers with full RFC 5766 MESSAGE-INTEGRITY authentication, optional TLS encryption, and works across the internet for most network configurations.
 
 ## Features
 
@@ -28,7 +28,7 @@ NodeRTC provides WebRTC-style peer-to-peer data connections using Node.js built-
 ## Installation
 
 ```bash
-npm install nodertc
+npm install node-rtc-connection
 ```
 
 ## Quick Start
@@ -36,7 +36,7 @@ npm install nodertc
 ### Basic Usage
 
 ```javascript
-const { createPeerConnection } = require('nodertc');
+const { createPeerConnection } = require('node-rtc-connection');
 
 // Create peer connection
 const pc = createPeerConnection();
@@ -68,7 +68,7 @@ await pc.setLocalDescription(offer);
 ### With STUN and TURN (Recommended)
 
 ```javascript
-const { createPeerConnection } = require('nodertc');
+const { createPeerConnection } = require('node-rtc-connection');
 
 // Configuration with STUN and TURN
 const config = {
@@ -295,7 +295,7 @@ new RTCPeerConnection(configuration, nativePeerConnectionFactory)
 
 ## Testing
 
-NodeRTC includes comprehensive unit tests covering all components:
+node-rtc-connection includes comprehensive unit tests covering all components:
 
 ```bash
 # Run all unit tests (fast, ~500ms)
@@ -421,7 +421,7 @@ Ported from Chromium's WebRTC implementation:
 
 ## Links
 
-- [NPM Package](https://www.npmjs.com/package/nodertc)
+- [NPM Package](https://www.npmjs.com/package/node-rtc-connection)
 - [GitHub Repository](https://github.com/nmhung1210/nodertc)
 - [Issues](https://github.com/nmhung1210/nodertc/issues)
 - [Contributing Guide](CONTRIBUTING.md)
