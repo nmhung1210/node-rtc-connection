@@ -519,15 +519,15 @@ class NativePeerConnection extends EventEmitter {
     const usingRelay = this._selectedLocalCandidate?.type === 'relay' || 
                        this._selectedRemoteCandidate?.type === 'relay';
 
-    if (!usingRelay) {
-      // Tie-breaking: only connect if our port is higher than remote port
-      // This ensures only one peer connects, avoiding the race condition
-      // Note: This only works for direct connections (host/srflx)
-      if (this._localPort < this._remotePort) {
-        console.log(`[NativePeerConnection] Not connecting (local port ${this._localPort} < remote port ${this._remotePort}), waiting for incoming`);
-        return;
-      }
-    }
+    // if (!usingRelay) {
+    //   // Tie-breaking: only connect if our port is higher than remote port
+    //   // This ensures only one peer connects, avoiding the race condition
+    //   // Note: This only works for direct connections (host/srflx)
+    //   if (this._localPort < this._remotePort) {
+    //     console.log(`[NativePeerConnection] Not connecting (local port ${this._localPort} < remote port ${this._remotePort}), waiting for incoming`);
+    //     return;
+    //   }
+    // }
 
     console.log(`[NativePeerConnection] Connecting to ${this._remoteAddress}:${this._remotePort}`);
     if (usingRelay) {
