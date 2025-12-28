@@ -357,7 +357,10 @@ class RTCIceTransport extends EventEmitter {
 
     // Validate that candidate has required properties for connectivity checks
     if (!parsedCandidate.address || parsedCandidate.port === null || parsedCandidate.port === undefined) {
-      console.warn('Remote candidate missing address or port, skipping connectivity checks');
+      // Only warn if it's not an empty candidate (which signals end-of-candidates)
+      if (parsedCandidate.candidate !== '') {
+        console.warn('Remote candidate missing address or port, skipping connectivity checks');
+      }
       // Store the original candidate for compatibility
       this._remoteCandidates.push(candidate);
       return;
@@ -684,6 +687,11 @@ class RTCIceTransport extends EventEmitter {
           // Store TURN client as the "socket" for this relay candidate
           this._sockets.set(foundation, { type: 'turn', client: turnClient });
 
+          // Handle incoming data from TURN
+          turnClient.on('data', (data, peer) => {
+            this._handleSocketMessage(data, peer, candidate);
+          });
+
           this._addLocalCandidate(candidate);
 
           // Keep allocation alive
@@ -760,8 +768,8 @@ class RTCIceTransport extends EventEmitter {
    */
   _sendConnectivityCheck(pair) {
     const socket = this._sockets.get(pair.local.foundation);
-    if (!socket || socket.type === 'turn') {
-      return; // Skip TURN candidates for now
+    if (!socket) {
+      return;
     }
 
     // Validate remote candidate has required properties
@@ -778,11 +786,23 @@ class RTCIceTransport extends EventEmitter {
     const request = this._createBindingRequest(transactionId);
     
     try {
-      socket.send(request, pair.remote.port, pair.remote.address, (err) => {
-        if (err) {
-          console.error(`Connectivity check failed for ${pair.remote.address}:${pair.remote.port}:`, err);
-        }
-      });
+      if (socket.type === 'turn') {
+        const turnClient = socket.client;
+        // Create permission and send indication
+        turnClient.createPermission(pair.remote.address)
+          .then(() => {
+            return turnClient.sendIndication(pair.remote.address, pair.remote.port, request);
+          })
+          .catch(err => {
+            // Suppress errors for now as this happens frequently during connection
+          });
+      } else {
+        socket.send(request, pair.remote.port, pair.remote.address, (err) => {
+          if (err) {
+            console.error(`Connectivity check failed for ${pair.remote.address}:${pair.remote.port}:`, err);
+          }
+        });
+      }
     } catch (err) {
       console.error(`Error sending connectivity check to ${pair.remote.address || 'unknown'}:${pair.remote.port || 'unknown'}:`, err);
     }

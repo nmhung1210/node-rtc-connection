@@ -12,6 +12,8 @@
 const dgram = require('dgram');
 const crypto = require('crypto');
 
+const EventEmitter = require('events');
+
 /**
  * STUN message types
  */
@@ -69,7 +71,7 @@ const MAGIC_COOKIE = 0x2112A442;
  * @class STUNClient
  * @description STUN/TURN client for NAT traversal
  */
-class STUNClient {
+class STUNClient extends EventEmitter {
   /**
    * Create a STUN client
    * @param {Object} options - Client options
@@ -81,6 +83,7 @@ class STUNClient {
    * @param {Object} [options.params={}] - Additional query parameters from URL
    */
   constructor(options) {
+    super();
     this.server = options.server;
     this.port = options.port;
     this.username = options.username;
@@ -205,6 +208,46 @@ class STUNClient {
   }
 
   /**
+   * Create a TURN Permission for a peer
+   * @param {string} peerAddress - Peer IP address
+   * @returns {Promise<void>}
+   */
+  async createPermission(peerAddress) {
+    if (!this.username || !this.credential) {
+      throw new Error('TURN requires username and credential');
+    }
+
+    const transactionId = crypto.randomBytes(12);
+    const request = this._createCreatePermissionRequest(transactionId, peerAddress);
+
+    await this._sendRequest(request, transactionId, 'createPermission');
+  }
+
+  /**
+   * Send data to a peer via TURN Send Indication
+   * @param {string} peerAddress - Peer IP address
+   * @param {number} peerPort - Peer port
+   * @param {Buffer} data - Data to send
+   * @returns {Promise<void>}
+   */
+  async sendIndication(peerAddress, peerPort, data) {
+    if (!this.username || !this.credential) {
+      throw new Error('TURN requires username and credential');
+    }
+
+    const transactionId = crypto.randomBytes(12);
+    const indication = this._createSendIndication(transactionId, peerAddress, peerPort, data);
+
+    // Indications are fire-and-forget, no response expected
+    return new Promise((resolve, reject) => {
+      this.socket.send(indication, this.port, this.server, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+
+  /**
    * Send a TURN request
    * @param {Buffer} request - Request message
    * @param {Buffer} transactionId - Transaction ID
@@ -305,6 +348,87 @@ class STUNClient {
     }
 
     return this._createMessage(STUN_MESSAGE_TYPES.ALLOCATE_REQUEST, transactionId, attributes, withAuth);
+  }
+
+  /**
+   * Create a TURN CreatePermission Request
+   * @param {Buffer} transactionId - Transaction ID
+   * @param {string} peerAddress - Peer IP address
+   * @returns {Buffer} STUN message
+   * @private
+   */
+  _createCreatePermissionRequest(transactionId, peerAddress) {
+    const attributes = [];
+
+    // XOR-PEER-ADDRESS
+    const peerAttr = this._createXorPeerAddressAttribute(peerAddress, 0, transactionId);
+    attributes.push(peerAttr);
+
+    // Auth attributes
+    if (this.realm && this.nonce) {
+      attributes.push(this._createStringAttribute(STUN_ATTRIBUTES.USERNAME, this.username));
+      attributes.push(this._createStringAttribute(STUN_ATTRIBUTES.REALM, this.realm));
+      attributes.push(this._createStringAttribute(STUN_ATTRIBUTES.NONCE, this.nonce));
+    }
+
+    return this._createMessage(STUN_MESSAGE_TYPES.CREATE_PERMISSION_REQUEST, transactionId, attributes, true);
+  }
+
+  /**
+   * Create a TURN Send Indication
+   * @param {Buffer} transactionId - Transaction ID
+   * @param {string} peerAddress - Peer IP address
+   * @param {number} peerPort - Peer port
+   * @param {Buffer} data - Data to send
+   * @returns {Buffer} STUN message
+   * @private
+   */
+  _createSendIndication(transactionId, peerAddress, peerPort, data) {
+    const attributes = [];
+
+    // XOR-PEER-ADDRESS
+    const peerAttr = this._createXorPeerAddressAttribute(peerAddress, peerPort, transactionId);
+    attributes.push(peerAttr);
+
+    // DATA
+    const dataAttr = Buffer.alloc(4 + data.length + (4 - (data.length % 4)) % 4);
+    dataAttr.writeUInt16BE(STUN_ATTRIBUTES.DATA, 0);
+    dataAttr.writeUInt16BE(data.length, 2);
+    data.copy(dataAttr, 4);
+    attributes.push(dataAttr);
+
+    return this._createMessage(STUN_MESSAGE_TYPES.SEND_INDICATION, transactionId, attributes, false);
+  }
+
+  /**
+   * Create XOR-PEER-ADDRESS attribute
+   * @param {string} address - IP address
+   * @param {number} port - Port
+   * @param {Buffer} transactionId - Transaction ID
+   * @returns {Buffer} Attribute buffer
+   * @private
+   */
+  _createXorPeerAddressAttribute(address, port, transactionId) {
+    const family = 0x01; // IPv4
+    const buffer = Buffer.alloc(4 + 8); // Type(2) + Length(2) + Reserved(1) + Family(1) + Port(2) + Address(4)
+    
+    buffer.writeUInt16BE(STUN_ATTRIBUTES.XOR_PEER_ADDRESS, 0);
+    buffer.writeUInt16BE(8, 2);
+    buffer.writeUInt8(0, 4);
+    buffer.writeUInt8(family, 5);
+
+    // XOR Port
+    const xorPort = port ^ (MAGIC_COOKIE >> 16);
+    buffer.writeUInt16BE(xorPort, 6);
+
+    // XOR Address
+    const parts = address.split('.').map(Number);
+    const addrInt = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+    const xorAddr = addrInt ^ MAGIC_COOKIE;
+    
+    buffer.writeUInt32BE(xorAddr >>> 0, 8); // Ensure unsigned
+
+    return buffer;
   }
 
   /**
@@ -482,6 +606,16 @@ class STUNClient {
         lifetime: attributes.lifetime || 600
       });
       this.transactions.delete(transactionKey);
+    }
+    // Handle Data Indication
+    else if (messageType === STUN_MESSAGE_TYPES.DATA_INDICATION) {
+      if (attributes.xorPeerAddress && attributes.data) {
+        this.emit('data', attributes.data, {
+          address: attributes.xorPeerAddress.address,
+          port: attributes.xorPeerAddress.port,
+          family: attributes.xorPeerAddress.family || 'IPv4'
+        });
+      }
     }
     // Handle error responses
     else if (messageType === STUN_MESSAGE_TYPES.BINDING_ERROR_RESPONSE ||

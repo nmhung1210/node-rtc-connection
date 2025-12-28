@@ -602,6 +602,11 @@ class RTCPeerConnection extends EventEmitter {
       console.error('Failed to establish network connection:', error);
     }
 
+    // Snapshot the candidates BEFORE starting ICE to avoid race condition
+    // If addIceCandidate runs while start() is yielding, it will see transport running and add the candidate.
+    // If we snapshot after start(), we might add the same candidate twice.
+    const candidatesToAdd = [...this._remoteIceCandidates];
+
     // Start ICE
     if (iceParams.usernameFragment && iceParams.password) {
       try {
@@ -612,7 +617,7 @@ class RTCPeerConnection extends EventEmitter {
     }
 
     // Add remote candidates
-    for (const candidate of this._remoteIceCandidates) {
+    for (const candidate of candidatesToAdd) {
       try {
         // Parse candidate string (simplified)
         await this._iceTransport.addRemoteCandidate(candidate);
@@ -672,7 +677,7 @@ class RTCPeerConnection extends EventEmitter {
       throw new Error('RTCPeerConnection is closed');
     }
 
-    if (!candidate) {
+    if (!candidate || (candidate.candidate === '')) {
       // End of candidates signal
       this._iceGatheringState = RTCIceGatheringState.COMPLETE;
       this.emit('icegatheringstatechange');
@@ -685,7 +690,26 @@ class RTCPeerConnection extends EventEmitter {
       this._remoteIceCandidates.push(candidate);
       
       // If connection is already started, add candidate immediately
-      if (this._remoteDescription) {
+      // Check if transport is actually started (not just initialized)
+      // We can infer this if we have remote description AND the transport state is not 'new'
+      // Or simply try/catch and ignore "not started" error, but better to check.
+      // Since we don't have public access to _started, we rely on state.
+      // However, state might be 'new' but start() was called? No, start() sets state to checking.
+      
+      // Actually, _startConnection calls start().
+      // If we are Answerer, we set remote offer. _startConnection is NOT called yet.
+      // It is called when we set local answer.
+      // So we should NOT add candidates yet.
+      
+      // If we are Offerer, we set remote answer. _startConnection IS called.
+      
+      // So we should only add if we have both descriptions (Stable state)?
+      // Or if the transport is started.
+      
+      // Let's check if we are in a state where transport should be running.
+      const isTransportRunning = this._iceTransport.state !== 'new' && this._iceTransport.state !== 'closed';
+      
+      if (isTransportRunning) {
         try {
           await this._iceTransport.addRemoteCandidate(candidate);
         } catch (error) {

@@ -48,8 +48,8 @@ let browserCandidates = [];
 
 async function createNodePeer() {
   // Create peer connection
-  console.log('Creating Node.js peer with configuration:', peerConfig.default.iceServers.map(s => s.urls).flat());
-  nodePeerConnection = new RTCPeerConnection(peerConfig.default);
+  console.log('Creating Node.js peer with configuration:', peerConfig.turnConfig.iceServers.map(s => s.urls).flat());
+  nodePeerConnection = new RTCPeerConnection(peerConfig.turnConfig);
 
   // Create data channel
   const channel = nodePeerConnection.createDataChannel('chat', {
@@ -341,7 +341,9 @@ function getHTML() {
         addMessage('✓ Received offer from Node.js', 'system');
 
         // Create peer connection
-        pc = new RTCPeerConnection(peerConfig.default);
+        pc = new RTCPeerConnection(${
+            JSON.stringify(peerConfig.turnConfig)
+        });
         
         // Setup event handlers
         pc.onicecandidate = (event) => {

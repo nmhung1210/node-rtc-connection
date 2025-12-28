@@ -105,7 +105,7 @@ function parseCandidates(sdp) {
   for (const line of lines) {
     if (line.startsWith('a=candidate:')) {
       candidates.push({
-        candidate: line,
+        candidate: line.substring(2),
         sdpMid: '0',
         sdpMLineIndex: 0
       });
