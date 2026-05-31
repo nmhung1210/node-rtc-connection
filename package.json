@@ -4,10 +4,10 @@
   "description": "WebRTC DataChannel implementation for Node.js with STUN, TURN, NAT traversal, and encryption. Pure Node.js, no native dependencies.",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
-  "types": "src/index.d.ts",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.d.ts",
+      "types": "./dist/index.d.ts",
       "require": "./dist/index.cjs",
       "import": "./dist/index.mjs"
     }
@@ -19,17 +19,20 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "rollup -c",
+    "build": "npm run build:types && npm run build:bundle",
+    "build:types": "tsc -p tsconfig.json --emitDeclarationOnly --outDir dist",
+    "build:bundle": "rollup -c",
+    "typecheck": "tsc -p tsconfig.test.json",
     "prepublishOnly": "npm run build && npm test",
-    "test": "node test/run-all-tests.js",
+    "test": "node --import tsx test/run-all-tests.ts",
     "test:ci": "bash scripts/ci-local.sh",
-    "test:unit": "SKIP_INTEGRATION=1 node --test test/*.test.js",
-    "test:coverage": "c8 node test/run-all-tests.js",
-    "test:coverage:check": "c8 --check-coverage node test/run-all-tests.js",
-    "test:watch": "node --test --watch test/*.test.js",
-    "example": "node examples/browser-server.js",
-    "example:browser": "node examples/browser-server.js",
-    "example:node": "node examples/node-to-node.js",
+    "test:unit": "SKIP_INTEGRATION=1 node --import tsx --test test/*.test.ts",
+    "test:coverage": "c8 node --import tsx test/run-all-tests.ts",
+    "test:coverage:check": "c8 --check-coverage node --import tsx test/run-all-tests.ts",
+    "test:watch": "node --import tsx --test --watch test/*.test.ts",
+    "example": "node --import tsx examples/browser-server.ts",
+    "example:browser": "node --import tsx examples/browser-server.ts",
+    "example:node": "node --import tsx examples/node-to-node.ts",
     "release:patch": "npm version patch && git push && git push --tags",
     "release:minor": "npm version minor && git push && git push --tags",
     "release:major": "npm version major && git push && git push --tags"
@@ -61,9 +64,14 @@
     "@rollup/plugin-commonjs": "^29.0.0",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@types/node": "^25.9.1",
     "c8": "^11.0.0",
     "playwright": "^1.60.0",
-    "rollup": "^4.54.0"
+    "rollup": "^4.54.0",
+    "tslib": "^2.8.1",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3"
   },
   "repository": {
     "type": "git",

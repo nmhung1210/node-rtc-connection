@@ -1,39 +1,31 @@
 import { nodeResolve } from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import json from '@rollup/plugin-json';
+import typescript from '@rollup/plugin-typescript';
 
 export default {
-  input: 'src/index.js',
+  input: 'src/index.ts',
   output: [
-    {
-      file: 'dist/index.cjs',
-      format: 'cjs',
-      exports: 'auto',
-      sourcemap: true
-    },
-    {
-      file: 'dist/index.mjs',
-      format: 'es',
-      sourcemap: true
-    }
+    { file: 'dist/index.cjs', format: 'cjs', exports: 'auto', sourcemap: true },
+    { file: 'dist/index.mjs', format: 'es', sourcemap: true },
   ],
   plugins: [
     json(),
-    nodeResolve({
-      preferBuiltins: true
+    nodeResolve({ preferBuiltins: true }),
+    commonjs(),
+    // Transpile to ESM so rollup can resolve + bundle the module graph into a
+    // single file; declarations are emitted separately by `tsc`. (With the
+    // tsconfig's node16/CommonJS module setting, the plugin would emit per-file
+    // require() calls that rollup leaves unbundled.)
+    typescript({
+      tsconfig: './tsconfig.json',
+      module: 'esnext',
+      moduleResolution: 'bundler',
+      declaration: false,
+      declarationMap: false,
+      sourceMap: true,
+      outDir: undefined,
     }),
-    commonjs()
   ],
-  external: [
-    'dgram',
-    'net',
-    'crypto',
-    'tls',
-    'os',
-    'events',
-    'stream',
-    'util',
-    'fs',
-    'path'
-  ]
+  external: ['dgram', 'net', 'crypto', 'tls', 'os', 'events', 'stream', 'util', 'fs', 'path'],
 };
