@@ -232,23 +232,23 @@ function parseDataBody(flags, body) {
  * Encode a SACK chunk body (cumulative ack only, no gap/dup for simplicity but
  * gap blocks supported via params).
  * @param {Object} p
- * @param {number} p.cumulativeTsnAck
+ * @param {number} p.cumulativeTSNAck
  * @param {number} p.a_rwnd
  * @param {Array<[number,number]>} [p.gapBlocks] - [start,end] offsets from cumAck+1
- * @param {Array<number>} [p.dupTsns]
+ * @param {Array<number>} [p.dupTSNs]
  * @returns {Buffer}
  */
-function encodeSackBody({ cumulativeTsnAck, a_rwnd, gapBlocks = [], dupTsns = [] }) {
-  const b = Buffer.alloc(12 + gapBlocks.length * 4 + dupTsns.length * 4);
-  b.writeUInt32BE(cumulativeTsnAck >>> 0, 0);
+function encodeSackBody({ cumulativeTSNAck, a_rwnd, gapBlocks = [], dupTSNs = [] }) {
+  const b = Buffer.alloc(12 + gapBlocks.length * 4 + dupTSNs.length * 4);
+  b.writeUInt32BE(cumulativeTSNAck >>> 0, 0);
   b.writeUInt32BE(a_rwnd >>> 0, 4);
   b.writeUInt16BE(gapBlocks.length, 8);
-  b.writeUInt16BE(dupTsns.length, 10);
+  b.writeUInt16BE(dupTSNs.length, 10);
   let o = 12;
   for (const [start, end] of gapBlocks) {
     b.writeUInt16BE(start, o); b.writeUInt16BE(end, o + 2); o += 4;
   }
-  for (const d of dupTsns) { b.writeUInt32BE(d >>> 0, o); o += 4; }
+  for (const d of dupTSNs) { b.writeUInt32BE(d >>> 0, o); o += 4; }
   return b;
 }
 
@@ -256,7 +256,7 @@ function encodeSackBody({ cumulativeTsnAck, a_rwnd, gapBlocks = [], dupTsns = []
  * Parse a SACK chunk body.
  */
 function parseSackBody(body) {
-  const cumulativeTsnAck = body.readUInt32BE(0);
+  const cumulativeTSNAck = body.readUInt32BE(0);
   const a_rwnd = body.readUInt32BE(4);
   const numGap = body.readUInt16BE(8);
   const numDup = body.readUInt16BE(10);
@@ -266,9 +266,9 @@ function parseSackBody(body) {
     gapBlocks.push([body.readUInt16BE(o), body.readUInt16BE(o + 2)]);
     o += 4;
   }
-  const dupTsns = [];
-  for (let i = 0; i < numDup; i++) { dupTsns.push(body.readUInt32BE(o)); o += 4; }
-  return { cumulativeTsnAck, a_rwnd, gapBlocks, dupTsns };
+  const dupTSNs = [];
+  for (let i = 0; i < numDup; i++) { dupTSNs.push(body.readUInt32BE(o)); o += 4; }
+  return { cumulativeTSNAck, a_rwnd, gapBlocks, dupTSNs };
 }
 
 module.exports = {

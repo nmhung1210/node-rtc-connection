@@ -408,7 +408,7 @@ class SctpAssociation extends EventEmitter {
     }
 
     const body = C.encodeSackBody({
-      cumulativeTsnAck: this._peerCumulativeTSN >>> 0,
+      cumulativeTSNAck: this._peerCumulativeTSN >>> 0,
       a_rwnd: DEFAULT_RWND,
       gapBlocks,
     });
@@ -420,12 +420,12 @@ class SctpAssociation extends EventEmitter {
     const sack = C.parseSackBody(chunk.body);
     // Remove acknowledged TSNs from the retransmit queue.
     for (const tsn of [...this._sentQueue.keys()]) {
-      if (snLte(tsn, sack.cumulativeTsnAck)) {
+      if (snLte(tsn, sack.cumulativeTSNAck)) {
         this._sentQueue.delete(tsn);
       }
     }
     // Gap-acked blocks are relative to cumAck; mark those acked too.
-    const base = (sack.cumulativeTsnAck + 1) >>> 0;
+    const base = (sack.cumulativeTSNAck + 1) >>> 0;
     for (const [start, end] of sack.gapBlocks) {
       for (let i = start; i <= end; i++) {
         this._sentQueue.delete((base + i - 1) >>> 0);
