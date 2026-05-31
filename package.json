@@ -20,7 +20,6 @@
   "scripts": {
     "build": "rollup -c",
     "typecheck": "tsc -p tsconfig.test.json",
-    "prepublishOnly": "npm run build && npm test",
     "test": "node --import tsx test/run-all-tests.ts",
     "test:ci": "bash scripts/ci-local.sh",
     "test:unit": "SKIP_INTEGRATION=1 node --import tsx --test test/*.test.ts",

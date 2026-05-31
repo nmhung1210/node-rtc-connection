@@ -3,6 +3,51 @@ import commonjs from '@rollup/plugin-commonjs';
 import json from '@rollup/plugin-json';
 import typescript from '@rollup/plugin-typescript';
 import terser from '@rollup/plugin-terser';
+import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
+
+/**
+ * Emit a minimal `dist/package.json` (and copy README/LICENSE) so the package
+ * can be published straight from `dist/`. The published manifest carries only
+ * what consumers need — no `scripts`, `devDependencies`, or dev config — and
+ * entry-point paths are rewritten relative to `dist/`.
+ */
+function publishManifest() {
+  return {
+    name: 'publish-manifest',
+    closeBundle() {
+      const pkg = JSON.parse(readFileSync('./package.json', 'utf8'));
+      const stripDist = (p) => (typeof p === 'string' ? p.replace(/^(\.\/)?dist\//, './') : p);
+
+      const minimal = {
+        name: pkg.name,
+        version: pkg.version,
+        description: pkg.description,
+        keywords: pkg.keywords,
+        author: pkg.author,
+        license: pkg.license,
+        type: pkg.type,
+        engines: pkg.engines,
+        main: stripDist(pkg.main),
+        module: stripDist(pkg.module),
+        types: stripDist(pkg.types),
+        exports: {
+          '.': {
+            types: stripDist(pkg.exports['.'].types),
+            require: stripDist(pkg.exports['.'].require),
+            import: stripDist(pkg.exports['.'].import),
+          },
+        },
+        repository: pkg.repository,
+        bugs: pkg.bugs,
+        homepage: pkg.homepage,
+      };
+
+      writeFileSync('dist/package.json', JSON.stringify(minimal, null, 2) + '\n');
+      copyFileSync('README.md', 'dist/README.md');
+      copyFileSync('LICENSE', 'dist/LICENSE');
+    },
+  };
+}
 
 export default {
   input: 'src/index.ts',
@@ -15,9 +60,7 @@ export default {
     nodeResolve({ preferBuiltins: true }),
     commonjs(),
     // Transpile to ESM so rollup can resolve + bundle the module graph into a
-    // single file; declarations are emitted separately by `tsc`. (With the
-    // tsconfig's node16/CommonJS module setting, the plugin would emit per-file
-    // require() calls that rollup leaves unbundled.)
+    // single file. The TypeScript plugin also emits the type declarations.
     typescript({
       tsconfig: './tsconfig.json',
       module: 'esnext',
@@ -30,6 +73,8 @@ export default {
     }),
     // Minify the published bundles.
     terser(),
+    // Emit the minimal dist/package.json + copy README/LICENSE.
+    publishManifest(),
   ],
   external: ['dgram', 'net', 'crypto', 'tls', 'os', 'events', 'stream', 'util', 'fs', 'path'],
 };

@@ -42,11 +42,11 @@ jobs:
             exit 1
           fi
 
-      # Skip integration suites here (no coturn service / Chromium in this job);
-      # the matrix test job above already gated them. prepublishOnly re-runs
-      # build + tests, so SKIP_INTEGRATION keeps that fast and deterministic.
+      # Publish from dist/, which carries the minimal generated package.json
+      # (consumer fields only — no scripts/devDependencies/source). The Test
+      # workflow above is the gate; build already ran in this job.
       - name: Publish to NPM
         run: npm publish --provenance --access public
+        working-directory: dist
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          SKIP_INTEGRATION: '1'
