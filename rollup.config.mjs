@@ -2,12 +2,13 @@ import { nodeResolve } from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import json from '@rollup/plugin-json';
 import typescript from '@rollup/plugin-typescript';
+import terser from '@rollup/plugin-terser';
 
 export default {
   input: 'src/index.ts',
   output: [
-    { file: 'dist/index.cjs', format: 'cjs', exports: 'auto', sourcemap: true },
-    { file: 'dist/index.mjs', format: 'es', sourcemap: true },
+    { file: 'dist/index.cjs', format: 'cjs', exports: 'auto', sourcemap: false },
+    { file: 'dist/index.mjs', format: 'es', sourcemap: false },
   ],
   plugins: [
     json(),
@@ -23,9 +24,11 @@ export default {
       moduleResolution: 'bundler',
       declaration: false,
       declarationMap: false,
-      sourceMap: true,
+      sourceMap: false,
       outDir: undefined,
     }),
+    // Minify the published bundles.
+    terser(),
   ],
   external: ['dgram', 'net', 'crypto', 'tls', 'os', 'events', 'stream', 'util', 'fs', 'path'],
 };

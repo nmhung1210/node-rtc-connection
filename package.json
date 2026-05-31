@@ -20,7 +20,7 @@
   ],
   "scripts": {
     "build": "npm run build:types && npm run build:bundle",
-    "build:types": "tsc -p tsconfig.json --emitDeclarationOnly --outDir dist",
+    "build:types": "tsc -p tsconfig.json --emitDeclarationOnly --declarationMap false --outDir dist",
     "build:bundle": "rollup -c",
     "typecheck": "tsc -p tsconfig.test.json",
     "prepublishOnly": "npm run build && npm test",
@@ -64,6 +64,7 @@
     "@rollup/plugin-commonjs": "^29.0.0",
     "@rollup/plugin-json": "^6.1.0",
     "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-terser": "^1.0.0",
     "@rollup/plugin-typescript": "^12.3.0",
     "@types/node": "^25.9.1",
     "c8": "^11.0.0",
