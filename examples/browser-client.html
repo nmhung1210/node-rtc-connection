@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NodeRTC — Browser ↔ Node.js</title>
+  <style>
+    :root { --accent: #4f46e5; --ok: #16a34a; --bg: #0f172a; --panel: #1e293b; --muted: #94a3b8; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0; background: var(--bg); color: #e2e8f0; min-height: 100vh;
+      display: flex; align-items: center; justify-content: center; padding: 24px;
+    }
+    .card {
+      width: 100%; max-width: 640px; background: var(--panel);
+      border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.4); overflow: hidden;
+    }
+    header { padding: 20px 24px; border-bottom: 1px solid #334155; }
+    header h1 { margin: 0; font-size: 18px; }
+    header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .states { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 24px; border-bottom: 1px solid #334155; }
+    .pill { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #334155; color: var(--muted); }
+    .pill b { color: #e2e8f0; font-weight: 600; }
+    .pill.ok { background: rgba(22,163,74,.2); color: #86efac; }
+    #log { height: 320px; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 8px; }
+    .msg { max-width: 80%; padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.4; word-break: break-word; }
+    .msg.in { align-self: flex-start; background: #334155; }
+    .msg.out { align-self: flex-end; background: var(--accent); }
+    .msg.sys { align-self: center; background: transparent; color: var(--muted); font-size: 12px; font-style: italic; }
+    .composer { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid #334155; }
+    input { flex: 1; padding: 10px 14px; border-radius: 10px; border: 1px solid #475569; background: #0f172a; color: #e2e8f0; font-size: 14px; }
+    input:focus { outline: none; border-color: var(--accent); }
+    button { padding: 10px 18px; border: none; border-radius: 10px; background: var(--accent); color: white; font-size: 14px; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <header>
+      <h1>NodeRTC — Browser ↔ Node.js data channel</h1>
+      <p>A real WebRTC connection (ICE + DTLS + SCTP) to a pure-Node.js peer.</p>
+    </header>
+    <div class="states">
+      <span class="pill" id="pill-conn">connection: <b id="s-conn">new</b></span>
+      <span class="pill" id="pill-ice">ice: <b id="s-ice">new</b></span>
+      <span class="pill" id="pill-chan">channel: <b id="s-chan">—</b></span>
+    </div>
+    <div id="log"></div>
+    <div class="composer">
+      <input id="input" placeholder="Type a message…" autocomplete="off" disabled />
+      <button id="send" disabled>Send</button>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const log = $('log');
+
+    function add(text, cls) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + cls;
+      div.textContent = text;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+    function setState(which, value, ok) {
+      $('s-' + which).textContent = value;
+      const pill = $('pill-' + which);
+      pill.classList.toggle('ok', !!ok);
+    }
+
+    let channel = null;
+
+    async function connect() {
+      add('Requesting offer from Node.js server…', 'sys');
+
+      // 1. Fetch the offer (Node is the offerer and owns the data channel).
+      const { sessionId, offer } = await (await fetch('/offer')).json();
+
+      // 2. Native browser RTCPeerConnection acts as the answerer.
+      const pc = new RTCPeerConnection({ iceServers: [] });
+
+      pc.onconnectionstatechange = () =>
+        setState('conn', pc.connectionState, pc.connectionState === 'connected');
+      pc.oniceconnectionstatechange = () =>
+        setState('ice', pc.iceConnectionState,
+          ['connected', 'completed'].includes(pc.iceConnectionState));
+
+      // The data channel is created by Node, so we receive it here.
+      pc.ondatachannel = (ev) => {
+        channel = ev.channel;
+        setState('chan', channel.label);
+        channel.binaryType = 'arraybuffer';
+
+        channel.onopen = () => {
+          setState('chan', channel.label + ' (open)', true);
+          add('Data channel open — say hello!', 'sys');
+          $('input').disabled = false;
+          $('send').disabled = false;
+          $('input').focus();
+        };
+        channel.onmessage = (m) => {
+          if (typeof m.data === 'string') add(m.data, 'in');
+          else add(`«binary ${m.data.byteLength} bytes»`, 'in');
+        };
+        channel.onclose = () => {
+          add('Data channel closed', 'sys');
+          $('input').disabled = true;
+          $('send').disabled = true;
+        };
+      };
+
+      // 3. Apply the Node offer, create our answer.
+      await pc.setRemoteDescription(offer);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      // 4. Wait for ICE gathering so candidates are embedded in the SDP.
+      await new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') return resolve();
+        pc.onicegatheringstatechange = () => {
+          if (pc.iceGatheringState === 'complete') resolve();
+        };
+        setTimeout(resolve, 3000);
+      });
+
+      // 5. Send our answer back to Node.
+      await fetch('/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, answer: pc.localDescription }),
+      });
+      add('Answer sent — establishing connection…', 'sys');
+    }
+
+    function send() {
+      const input = $('input');
+      const text = input.value.trim();
+      if (!text || !channel || channel.readyState !== 'open') return;
+      channel.send(text);
+      add(text, 'out');
+      input.value = '';
+    }
+
+    $('send').onclick = send;
+    $('input').addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+
+    connect().catch((err) => add('Error: ' + err.message, 'sys'));
+  </script>
+</body>
+</html>

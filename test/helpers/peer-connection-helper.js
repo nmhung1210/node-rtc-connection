@@ -14,12 +14,16 @@ async function createConnectedPeers(channelLabel = 'test') {
   const pc2 = new RTCPeerConnection({ iceServers: [] });
   
   const channel1 = pc1.createDataChannel(channelLabel);
-  
+
   let channel2;
   pc2.once('datachannel', ({ channel }) => {
     channel2 = channel;
   });
-  
+
+  // Trickle ICE candidates between the peers (the real WebRTC signaling path).
+  pc1.on('icecandidate', (e) => { if (e.candidate) pc2.addIceCandidate(e.candidate); });
+  pc2.on('icecandidate', (e) => { if (e.candidate) pc1.addIceCandidate(e.candidate); });
+
   // Signaling
   const offer = await pc1.createOffer();
   await pc1.setLocalDescription(offer);

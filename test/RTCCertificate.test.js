@@ -142,12 +142,13 @@ describe('RTCCertificate', () => {
     it('should export to PEM format', async () => {
       const cert = await RTCCertificate.generateCertificate();
       const pem = cert.toPEM();
-      
+
       assert.ok(typeof pem === 'object');
       assert.ok(typeof pem.pemPrivateKey === 'string');
       assert.ok(typeof pem.pemCertificate === 'string');
       assert.ok(pem.pemPrivateKey.includes('PRIVATE KEY'));
-      assert.ok(pem.pemCertificate.includes('PUBLIC KEY'));
+      // Real X.509 certificate, not a bare public key.
+      assert.ok(pem.pemCertificate.includes('BEGIN CERTIFICATE'));
     });
   });
 
@@ -317,14 +318,26 @@ describe('RTCCertificate', () => {
   describe('getPrivateKey and getPublicKey', () => {
     it('should return PEM-encoded keys', async () => {
       const cert = await RTCCertificate.generateCertificate();
-      
+
       const privateKey = cert.getPrivateKey();
       const publicKey = cert.getPublicKey();
-      
+
       assert.ok(typeof privateKey === 'string');
       assert.ok(typeof publicKey === 'string');
       assert.ok(privateKey.includes('PRIVATE KEY'));
       assert.ok(publicKey.includes('PUBLIC KEY'));
+    });
+
+    it('should expose the DER certificate and a private KeyObject', async () => {
+      const cert = await RTCCertificate.generateCertificate();
+
+      const der = cert.getCertificateDer();
+      assert.ok(Buffer.isBuffer(der));
+      assert.ok(der.length > 0);
+
+      const keyObj = cert.getPrivateKeyObject();
+      assert.strictEqual(keyObj.type, 'private');
+      assert.strictEqual(keyObj.asymmetricKeyType, 'ec');
     });
   });
 

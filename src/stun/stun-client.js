@@ -201,10 +201,31 @@ class STUNClient extends EventEmitter {
       throw new Error('TURN requires username and credential');
     }
 
-    const transactionId = crypto.randomBytes(12);
-    const request = this._createRefreshRequest(transactionId, lifetime);
+    return this._withAuthRetry('refresh', () => {
+      const transactionId = crypto.randomBytes(12);
+      return { transactionId, request: this._createRefreshRequest(transactionId, lifetime) };
+    });
+  }
 
-    return this._sendRequest(request, transactionId, 'refresh');
+  /**
+   * Send an authenticated TURN request, retrying once on a 401 (stale-nonce or
+   * first-time challenge) after refreshing realm/nonce from the error.
+   * @param {string} type - request label for diagnostics
+   * @param {() => {transactionId: Buffer, request: Buffer}} build
+   * @returns {Promise<Object>}
+   * @private
+   */
+  async _withAuthRetry(type, build) {
+    const first = build();
+    try {
+      return await this._sendRequest(first.request, first.transactionId, type);
+    } catch (error) {
+      if (error.message.includes('401') && this.realm && this.nonce) {
+        const retry = build(); // rebuilt with the refreshed realm/nonce
+        return this._sendRequest(retry.request, retry.transactionId, type);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -217,10 +238,10 @@ class STUNClient extends EventEmitter {
       throw new Error('TURN requires username and credential');
     }
 
-    const transactionId = crypto.randomBytes(12);
-    const request = this._createCreatePermissionRequest(transactionId, peerAddress);
-
-    await this._sendRequest(request, transactionId, 'createPermission');
+    await this._withAuthRetry('createPermission', () => {
+      const transactionId = crypto.randomBytes(12);
+      return { transactionId, request: this._createCreatePermissionRequest(transactionId, peerAddress) };
+    });
   }
 
   /**
@@ -558,6 +579,21 @@ class STUNClient extends EventEmitter {
       return; // Not a STUN message
     }
 
+    // DATA indications are server-initiated (relayed peer data) and carry a
+    // fresh transaction id that matches no pending request — handle them before
+    // the transaction lookup.
+    if (messageType === STUN_MESSAGE_TYPES.DATA_INDICATION) {
+      const attrs = this._parseAttributes(msg.slice(20, 20 + messageLength), transactionId);
+      if (attrs.xorPeerAddress && attrs.data) {
+        this.emit('data', attrs.data, {
+          address: attrs.xorPeerAddress.address,
+          port: attrs.xorPeerAddress.port,
+          family: attrs.xorPeerAddress.family || 'IPv4',
+        });
+      }
+      return;
+    }
+
     const transactionKey = transactionId.toString('hex');
     const transaction = this.transactions.get(transactionKey);
 
@@ -607,21 +643,18 @@ class STUNClient extends EventEmitter {
       });
       this.transactions.delete(transactionKey);
     }
-    // Handle Data Indication
-    else if (messageType === STUN_MESSAGE_TYPES.DATA_INDICATION) {
-      if (attributes.xorPeerAddress && attributes.data) {
-        this.emit('data', attributes.data, {
-          address: attributes.xorPeerAddress.address,
-          port: attributes.xorPeerAddress.port,
-          family: attributes.xorPeerAddress.family || 'IPv4'
-        });
-      }
+    // Handle TURN CreatePermission / ChannelBind success responses
+    else if (messageType === STUN_MESSAGE_TYPES.CREATE_PERMISSION_RESPONSE ||
+             messageType === STUN_MESSAGE_TYPES.CHANNEL_BIND_RESPONSE) {
+      transaction.resolve({ ok: true });
+      this.transactions.delete(transactionKey);
     }
-    // Handle error responses
-    else if (messageType === STUN_MESSAGE_TYPES.BINDING_ERROR_RESPONSE ||
-             messageType === STUN_MESSAGE_TYPES.ALLOCATE_ERROR_RESPONSE) {
-      
-      // Store realm and nonce for subsequent requests
+    // (DATA indications are handled earlier, before the transaction lookup.)
+    // Handle error responses generically: any class-of-error message
+    // (the 0x0110 bits set). This covers ALLOCATE (0x0113), CreatePermission
+    // (0x0118), Refresh (0x0114), Binding (0x0111), etc.
+    else if ((messageType & 0x0110) === 0x0110) {
+      // Store realm and nonce so the caller can retry with fresh credentials.
       if (attributes.realm) {
         this.realm = attributes.realm;
       }
@@ -663,6 +696,12 @@ class STUNClient extends EventEmitter {
           break;
         case STUN_ATTRIBUTES.XOR_RELAYED_ADDRESS:
           attributes.xorRelayedAddress = this._parseXorAddress(value, transactionId);
+          break;
+        case STUN_ATTRIBUTES.XOR_PEER_ADDRESS:
+          attributes.xorPeerAddress = this._parseXorAddress(value, transactionId);
+          break;
+        case STUN_ATTRIBUTES.DATA:
+          attributes.data = value;
           break;
         case STUN_ATTRIBUTES.MAPPED_ADDRESS:
           attributes.mappedAddress = this._parseAddress(value);

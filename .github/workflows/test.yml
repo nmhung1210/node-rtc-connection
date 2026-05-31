@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     services:
       coturn:
         image: coturn/coturn:latest
@@ -29,26 +29,92 @@ jobs:
           --no-tls
           --no-dtls
           --verbose
-    
+
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
-    
+        node-version: [20.x, 22.x, 24.x]
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
+      # openssl is preinstalled on ubuntu-latest and drives the DTLS interop
+      # tests (test/dtls-openssl-interop.test.js). Playwright's Chromium drives
+      # the end-to-end browser interop test (test/browser-interop.test.js); both
+      # suites skip automatically if their tool is missing.
+      - name: Show toolchain versions
+        run: |
+          node --version
+          openssl version
+
+      - name: Install Playwright Chromium (for browser interop test)
+        run: npx playwright install --with-deps chromium
+
       - name: Verify TURN server
         run: |
           echo "Checking if TURN server is accessible..."
-          timeout 10 bash -c 'until nc -zv 127.0.0.1 3478; do sleep 1; done' || echo "TURN server not responding (tests may skip TURN)"
-      
+          timeout 10 bash -c 'until nc -zv 127.0.0.1 3478; do sleep 1; done' || echo "TURN server not responding (TURN tests may skip)"
+
+      # TURN_HOST tells run-all-tests.js a TURN server is already provided (the
+      # coturn service container above), so it won't try to start its own.
       - name: Run all tests
         run: npm test
+        env:
+          TURN_HOST: 127.0.0.1
+
+  coverage:
+    runs-on: ubuntu-latest
+
+    services:
+      coturn:
+        image: coturn/coturn:latest
+        ports:
+          - 3478:3478/udp
+          - 3478:3478/tcp
+        options: >-
+          --entrypoint turnserver
+          coturn/coturn:latest
+          -n
+          --listening-port=3478
+          --fingerprint
+          --lt-cred-mech
+          --user=testuser:testpass
+          --user=nodertc:nodertcpass
+          --realm=nodertc.local
+          --no-tls
+          --no-dtls
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Enforce coverage thresholds (see .c8rc.json) against the full suite.
+      - name: Run coverage
+        run: npm run test:coverage:check
+        env:
+          TURN_HOST: 127.0.0.1
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: ignore

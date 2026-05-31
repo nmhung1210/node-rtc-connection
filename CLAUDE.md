@@ -1,0 +1,157 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Overview
+
+`node-rtc-connection` is a pure-Node.js (no native deps) WebRTC DataChannel
+library exposing a browser-compatible `RTCPeerConnection` / `RTCDataChannel`
+API. It targets data channels only — no media streams.
+
+## Commands
+
+```bash
+npm run build              # Bundle src/ → dist/index.cjs + dist/index.mjs (rollup)
+npm test                   # Run all *.test.js via test/run-all-tests.js (node:test)
+npm run test:ci            # Reproduce CI locally: ensure Chromium, run full suite
+npm run test:unit          # Unit tests only, SKIP_INTEGRATION=1 (no external deps)
+npm run test:coverage      # Full suite under c8; report to coverage/ (text + lcov)
+npm run test:coverage:check # Same, but fail if below .c8rc.json thresholds (CI)
+npm run test:watch         # node --test --watch
+
+# Run a single test file
+node --test test/RTCDataChannel.test.js
+# Run a single named test
+node --test --test-name-pattern="creates a data channel" test/RTCDataChannel.test.js
+```
+
+`npm test` (`test/run-all-tests.js`) starts a `coturn` container before the
+suite and tears it down after, so the TURN relay test runs locally without setup
+(skipped if Docker is unavailable, `SKIP_INTEGRATION=1`, or `TURN_HOST` already
+points at an external server). `npm run test:ci` (`scripts/ci-local.sh`) wraps
+`npm test`, additionally ensuring Playwright's Chromium is installed for the
+browser test — mirroring `.github/workflows/test.yml`.
+
+`SKIP_INTEGRATION=1` is honored by tests that open real sockets / reach external
+STUN/TURN servers — set it when working offline. CI runs the full suite against
+Node 20/22/24 with a `coturn` TURN server sidecar (users `testuser:testpass`,
+`nodertc:nodertcpass`, realm `nodertc.local`).
+
+## Architecture
+
+This is a **real, browser-interoperable WebRTC implementation in pure Node.js**
+(verified against headless Chrome and OpenSSL — see Verification below). The
+protocol bytes are genuine; nothing is stubbed.
+
+`RTCPeerConnection` (`src/peerconnection/`) handles signaling (offer/answer +
+ICE candidate trickle) and delegates the wire protocols to `TransportStack`
+(`src/transport-stack.js`), which composes four real layers:
+
+```
+RTCPeerConnection            signaling, SDP, channel lifecycle
+  └─ TransportStack          wires the layers together + role negotiation
+       ├─ IceAgent (src/ice/ice-agent.js)        RFC 8445 connectivity checks over UDP
+       ├─ DtlsConnection (src/dtls/connection.js) DTLS 1.2 handshake + record layer
+       ├─ SctpAssociation (src/sctp/association.js) SCTP assoc, DATA/SACK, reassembly
+       └─ DataChannelManager (src/sctp/datachannel-manager.js) DCEP + stream mapping
+```
+
+Datagram flow (one UDP socket per RFC 7983 demux):
+`IceAgent` 'data' (non-STUN) → `DtlsConnection.handlePacket` → decrypted app
+records → `SctpAssociation.receivePacket` → DCEP/`RTCDataChannel`. Outbound runs
+the reverse: SCTP packet → `DtlsConnection.send` (encrypt) → `IceAgent.send`.
+
+`src/index.js` is the single entry point. `src/index.d.ts` holds hand-written
+TypeScript types (keep in sync manually).
+
+### Layer specifics
+
+- **Crypto foundation** (`src/crypto/`): `der.js` is a minimal ASN.1/DER encoder;
+  `x509.js` builds a self-signed ECDSA P-256 certificate. The SDP `a=fingerprint`
+  is SHA-256 over the **DER certificate** (RFC 8122) — not the public key.
+  `RTCCertificate` wraps this and exposes `getCertificateDer()` /
+  `getPrivateKeyObject()` for the DTLS handshake.
+- **DTLS** (`src/dtls/`): cipher suite `TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256`
+  only, secp256r1, extended master secret, mutual auth, HelloVerifyRequest
+  cookie. `prf.js`/`cipher.js`/`protocol.js`/`connection.js`. **Gotcha:**
+  CertificateVerify & ServerKeyExchange sign the *raw* handshake transcript —
+  `crypto.sign('sha256', …)` hashes internally, so never pre-hash.
+- **SCTP** (`src/sctp/`): `crc32c.js` (Castagnoli), `chunks.js` (codec),
+  `association.js` (4-way INIT/COOKIE setup, TSN, SACK with gap blocks,
+  fragmentation), `dcep.js` (RFC 8832 OPEN/ACK on PPID 50). Stream IDs: DTLS
+  client uses even, server odd. PPIDs: string 51/56, binary 53/57.
+- **ICE** (`src/ice/ice-agent.js` + `stun-message.js`): connectivity checks
+  carry USERNAME, MESSAGE-INTEGRITY (HMAC-SHA1 keyed by ice-pwd), FINGERPRINT,
+  PRIORITY, ICE-CONTROLLING/CONTROLLED, USE-CANDIDATE. Aggressive nomination.
+  Gathers **host**, **srflx** (STUN binding), and **relay** (TURN ALLOCATE)
+  candidates from `configuration.iceServers`; `iceTransportPolicy:'relay'`
+  forces relay-only. Each candidate carries a uniform `transport` (host UDP
+  socket or `RelayTransport` over `stun-client`) so checks and DTLS data flow
+  identically over either. `configuration.iceServers` is threaded
+  RTCPeerConnection → `TransportStack.gather()` → `IceAgent.gather()`.
+
+### History
+
+Earlier versions shipped fake `RTCIceTransport`/`RTCDtlsTransport`/
+`RTCSctpTransport` state machines and a plain-TCP/JSON `network-transport.js`
+data path. All have been deleted — the entire data path is now the real
+`TransportStack` (ICE → DTLS → SCTP → DCEP). `src/stun/stun-client.js` is the
+one survivor of that era and is **live**: the `IceAgent`'s `RelayTransport` uses
+it for TURN ALLOCATE/permission/send.
+
+### Role negotiation
+
+Offerer is ICE-**controlling**; answerer is **controlled**. DTLS roles follow
+`a=setup`: offerer sends `actpass`, answerer picks `active` (→ DTLS client), so
+offerer becomes DTLS server. The DTLS client is also the SCTP INIT initiator
+(RFC 8832). See `_setupRolesAndStack` in `RTCPeerConnection.js`.
+
+## Verification (how correctness is proven, not assumed)
+
+Each layer has an external-reference test, not just self-loopback:
+
+- `test/x509.test.js` — cert validated by Node's `X509Certificate.verify()`.
+- `test/dtls-openssl-interop.test.js` — **handshakes with `openssl s_server`/
+  `s_client`** (DTLS 1.2, mutual auth) in both roles.
+- `test/sctp-loopback.test.js`, `test/datachannel-stack.test.js`,
+  `test/transport-stack.test.js` — SCTP/DCEP and the full ICE+DTLS+SCTP pipeline
+  over real UDP.
+- `test/browser-interop.test.js` — **drives real Chromium via Playwright**
+  against the in-process signaling harness (`test/browser/interop-server.js`);
+  asserts a data channel opens and string + binary flow both directions. The
+  authoritative interop proof.
+- `test/turn-e2e.test.js` — connects two peers forced to `iceTransportPolicy:
+  'relay'` against a **real coturn** server and confirms data flows entirely
+  over the TURN relay (selected candidate type is `relay`).
+
+Interop tests skip gracefully when their dependency is absent or
+`SKIP_INTEGRATION=1`. The browser test needs Playwright's Chromium
+(`npx playwright install chromium`); the TURN test uses
+`TURN_HOST`/`TURN_PORT`/`TURN_USER`/`TURN_PASS` (default `127.0.0.1:3478`,
+`testuser`/`testpass`) and skips if no server answers.
+
+Browsers obfuscate host candidates as mDNS `.local` hostnames; the ICE agent
+skips those (no resolver) and connects via the peer-reflexive candidate learned
+from the browser's inbound checks.
+
+### Coverage
+
+`npm run test:coverage` runs the full suite under c8 (config in `.c8rc.json`,
+scoped to `src/`). Baseline is ~91% lines / ~81% branches / ~90% functions;
+`.c8rc.json` sets regression thresholds a few points below, enforced by
+`test:coverage:check` (the CI `coverage` job). For accurate numbers run with
+coturn + Chromium available — `SKIP_INTEGRATION=1` undercounts the relay/browser
+paths. Lowest-covered module is `stun-client.js` (its server-only branches are
+not exercised by the client-side relay path).
+
+## Conventions
+
+- CommonJS throughout (`require`/`module.exports`); `"type": "commonjs"`.
+- Tests use `node:test` + `node:assert`. Run them with `npm test`
+  (`test/run-all-tests.js`), which recurses into `test/integration` and runs
+  `test/browser-interop.test.js` while skipping the `test/browser/` support code
+  and `test/helpers/`. Note: raw `node --test test/` will try to execute those
+  support files (Node treats every `.js` under `test/` as a suite), so prefer
+  `npm test`.
+- `dist/` is generated — never edit by hand; rebuild with `npm run build`.
+- All protocol layers extend `EventEmitter` and communicate via events.

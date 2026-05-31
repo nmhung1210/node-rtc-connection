@@ -2,16 +2,14 @@
  * @file RTCCertificate.js
  * @description DTLS certificate implementation for WebRTC.
  * @module dtls/RTCCertificate
- * 
- * Ported from Chromium's RTCCertificate implementation:
- * - cc/rtc_certificate.h
- * - cc/rtc_certificate.cc
- * - cc/rtc_certificate.idl
- * - cc/rtc_certificate_generator.h
- * - cc/rtc_certificate_generator.cc
+ *
+ * Implements the W3C RTCCertificate interface
+ * (https://www.w3.org/TR/webrtc/#rtccertificate-interface). Certificate and key
+ * generation are handled by src/crypto/x509.js.
  */
 
 const crypto = require('crypto');
+const x509 = require('../crypto/x509');
 
 /**
  * RTCDtlsFingerprint - DTLS certificate fingerprint
@@ -21,71 +19,45 @@ const crypto = require('crypto');
  */
 
 /**
- * Generate a self-signed certificate for DTLS.
+ * Generate a self-signed X.509 certificate for DTLS.
+ *
+ * Unlike a bare key pair, a real certificate is required for browser interop:
+ * the DTLS handshake transmits the certificate and the peer validates it
+ * against the SDP a=fingerprint (a hash over the DER certificate, RFC 8122).
+ *
  * @param {Object} options - Certificate generation options
- * @param {string} [options.name='webrtc'] - Common name for the certificate
+ * @param {string} [options.name] - Common name for the certificate
  * @param {number} [options.days=30] - Days until expiration
- * @param {string} [options.hash='sha256'] - Hash algorithm
- * @returns {Object} Certificate object with key and cert
+ * @returns {Object} Certificate object with DER cert, keys and expiry
  * @private
  */
 function generateSelfSignedCertificate(options = {}) {
-  const {
-    name = 'webrtc',
-    days = 30,
-    hash = 'sha256'
-  } = options;
+  const { name, days = 30 } = options;
 
-  // Generate RSA key pair
-  const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-    publicKeyEncoding: {
-      type: 'spki',
-      format: 'pem'
-    },
-    privateKeyEncoding: {
-      type: 'pkcs8',
-      format: 'pem'
-    }
+  const { certDer, privateKey, publicKey, notAfter } = x509.generateSelfSigned({
+    commonName: name,
+    days,
   });
 
-  // Create certificate using Node.js crypto
-  // Note: Node.js doesn't have built-in self-signed cert generation,
-  // so we'll use a simplified approach storing the key pair
-  const expirationDate = new Date();
-  expirationDate.setDate(expirationDate.getDate() + days);
-
   return {
-    privateKey,
-    publicKey,
-    expires: expirationDate.getTime(),
-    hash
+    certDer, // Buffer, DER-encoded X.509 certificate
+    privateKey, // crypto.KeyObject (EC P-256)
+    publicKey, // crypto.KeyObject
+    expires: notAfter.getTime(),
+    hash: 'sha256',
   };
 }
 
 /**
- * Calculate fingerprint from public key.
- * @param {string} publicKey - PEM-encoded public key
- * @param {string} algorithm - Hash algorithm (e.g., 'sha256')
+ * Calculate the certificate fingerprint per RFC 8122: a hash over the
+ * DER-encoded certificate, uppercase hex, colon-separated.
+ * @param {Buffer} certDer - DER-encoded X.509 certificate
+ * @param {string} algorithm - SDP hash name (e.g. 'sha-256')
  * @returns {string} Fingerprint (colon-separated hex)
  * @private
  */
-function calculateFingerprint(publicKey, algorithm = 'sha256') {
-  // Remove PEM headers and decode base64
-  const pemBody = publicKey
-    .replace(/-----BEGIN PUBLIC KEY-----/, '')
-    .replace(/-----END PUBLIC KEY-----/, '')
-    .replace(/\s/g, '');
-  
-  const keyBuffer = Buffer.from(pemBody, 'base64');
-  
-  // Calculate hash
-  const hash = crypto.createHash(algorithm);
-  hash.update(keyBuffer);
-  const digest = hash.digest('hex').toUpperCase();
-  
-  // Format as colon-separated pairs
-  return digest.match(/.{2}/g).join(':');
+function calculateFingerprint(certDer, algorithm = 'sha-256') {
+  return x509.fingerprint(certDer, algorithm);
 }
 
 /**
@@ -115,13 +87,24 @@ class RTCCertificate {
    */
   constructor(certData) {
     // Store certificate data
-    this._privateKey = certData.privateKey;
+    this._certDer = certData.certDer || null; // Buffer, DER X.509 cert
+    this._privateKey = certData.privateKey; // crypto.KeyObject or PEM string
     this._publicKey = certData.publicKey;
     this._expires = certData.expires;
     this._hash = certData.hash || 'sha256';
-    
+
     // Cache fingerprints
     this._fingerprints = null;
+  }
+
+  /**
+   * Get the DER-encoded X.509 certificate.
+   * Used by the DTLS handshake to transmit the local certificate.
+   * @returns {Buffer|null}
+   * @internal
+   */
+  getCertificateDer() {
+    return this._certDer;
   }
 
   /**
@@ -140,19 +123,44 @@ class RTCCertificate {
    * @returns {Array<RTCDtlsFingerprint>} Array of fingerprint objects
    */
   getFingerprints() {
-    if (!this._fingerprints) {
-      // Calculate fingerprint for multiple algorithms
-      const algorithms = ['sha-256', 'sha-384', 'sha-512'];
-      this._fingerprints = algorithms.map(algorithm => {
-        const hashAlgo = algorithm.replace('-', ''); // 'sha-256' -> 'sha256'
-        return {
-          algorithm,
-          value: calculateFingerprint(this._publicKey, hashAlgo)
-        };
-      });
+    if (!this._certDer) {
+      throw new Error('Certificate has no DER encoding; cannot compute fingerprint');
     }
-    
+    if (!this._fingerprints) {
+      // Fingerprint is computed over the DER certificate (RFC 8122).
+      const algorithms = ['sha-256', 'sha-384', 'sha-512'];
+      this._fingerprints = algorithms.map(algorithm => ({
+        algorithm,
+        value: calculateFingerprint(this._certDer, algorithm),
+      }));
+    }
+
     return this._fingerprints.map(fp => ({ ...fp }));
+  }
+
+  /**
+   * Get the private key as a Node crypto KeyObject (for the DTLS handshake).
+   * @returns {crypto.KeyObject}
+   * @internal
+   */
+  getPrivateKeyObject() {
+    return this._toKeyObject(this._privateKey, 'private');
+  }
+
+  /**
+   * Coerce a stored key (KeyObject or PEM string) into a KeyObject.
+   * @param {crypto.KeyObject|string} key
+   * @param {'private'|'public'} kind
+   * @returns {crypto.KeyObject}
+   * @private
+   */
+  _toKeyObject(key, kind) {
+    if (key && typeof key === 'object' && key.type) {
+      return key; // already a KeyObject
+    }
+    return kind === 'private'
+      ? crypto.createPrivateKey(key)
+      : crypto.createPublicKey(key);
   }
 
   /**
@@ -161,7 +169,8 @@ class RTCCertificate {
    * @internal
    */
   getPrivateKey() {
-    return this._privateKey;
+    const obj = this._toKeyObject(this._privateKey, 'private');
+    return obj.export({ type: 'pkcs8', format: 'pem' });
   }
 
   /**
@@ -170,17 +179,25 @@ class RTCCertificate {
    * @internal
    */
   getPublicKey() {
-    return this._publicKey;
+    const obj = this._toKeyObject(this._publicKey, 'public');
+    return obj.export({ type: 'spki', format: 'pem' });
   }
 
   /**
    * Convert to PEM format (for serialization/storage).
+   * The certificate is exported as a PEM-wrapped DER X.509 certificate.
    * @returns {Object} Object with pemPrivateKey and pemCertificate
    */
   toPEM() {
+    const pemCertificate = this._certDer
+      ? `-----BEGIN CERTIFICATE-----\n${this._certDer
+          .toString('base64')
+          .match(/.{1,64}/g)
+          .join('\n')}\n-----END CERTIFICATE-----\n`
+      : this.getPublicKey();
     return {
-      pemPrivateKey: this._privateKey,
-      pemCertificate: this._publicKey
+      pemPrivateKey: this.getPrivateKey(),
+      pemCertificate,
     };
   }
 
@@ -268,9 +285,22 @@ class RTCCertificate {
     // Default expiration to 30 days if not provided
     const expirationTime = expires || (Date.now() + (30 * 24 * 60 * 60 * 1000));
 
+    // If a PEM CERTIFICATE block was provided, recover the DER so fingerprints
+    // (computed over the DER cert) round-trip correctly.
+    let certDer = null;
+    let publicKey = pemCertificate;
+    const certMatch = pemCertificate.match(
+      /-----BEGIN CERTIFICATE-----([\s\S]+?)-----END CERTIFICATE-----/
+    );
+    if (certMatch) {
+      certDer = Buffer.from(certMatch[1].replace(/\s/g, ''), 'base64');
+      publicKey = crypto.createPublicKey(crypto.createPrivateKey(pemPrivateKey));
+    }
+
     return new RTCCertificate({
+      certDer,
       privateKey: pemPrivateKey,
-      publicKey: pemCertificate,
+      publicKey,
       expires: expirationTime,
       hash: 'sha256'
     });

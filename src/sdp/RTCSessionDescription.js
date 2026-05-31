@@ -2,10 +2,9 @@
  * @file RTCSessionDescription.js
  * @description Session Description Protocol (SDP) representation
  * @module sdp/RTCSessionDescription
- * 
- * Ported from Chromium's RTCSessionDescription implementation:
- * - cc/rtc_session_description.idl
- * - cc/rtc_session_description.h
+ *
+ * Implements the W3C RTCSessionDescription interface
+ * (https://www.w3.org/TR/webrtc/#rtcsessiondescription-class).
  */
 
 'use strict';
