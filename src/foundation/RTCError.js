@@ -1,9 +1,9 @@
 /**
  * @fileoverview RTCError - WebRTC-specific error types.
- * 
- * Ported from Chromium's WebRTC implementation:
- * chromium/src/third_party/blink/renderer/modules/peerconnection/rtc_error.{h,cc}
- * 
+ *
+ * Implements the W3C RTCError interface
+ * (https://www.w3.org/TR/webrtc/#rtcerror-interface).
+ *
  * Provides WebRTC-specific error types extending the standard Error class
  * with additional error detail types and metadata fields.
  * 

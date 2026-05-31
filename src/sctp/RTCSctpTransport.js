@@ -2,11 +2,10 @@
  * @file RTCSctpTransport.js
  * @description SCTP transport implementation for WebRTC data channels.
  * @module sctp/RTCSctpTransport
- * 
- * Ported from Chromium's RTCSctpTransport implementation:
- * - cc/rtc_sctp_transport.h
- * - cc/rtc_sctp_transport.cc
- * - cc/rtc_sctp_transport.idl
+ *
+ * Implements the W3C RTCSctpTransport interface
+ * (https://www.w3.org/TR/webrtc/#rtcsctptransport-interface). Legacy: the real
+ * SCTP association now lives in src/sctp/association.js.
  */
 
 const EventEmitter = require('events');

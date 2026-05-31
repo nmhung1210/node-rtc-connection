@@ -2,11 +2,10 @@
  * @file RTCIceTransport.js
  * @description ICE transport implementation for establishing connectivity.
  * @module ice/RTCIceTransport
- * 
- * Ported from Chromium's RTCIceTransport implementation:
- * - cc/rtc_ice_transport.h
- * - cc/rtc_ice_transport.cc
- * - cc/rtc_ice_transport.idl
+ *
+ * Implements the W3C RTCIceTransport interface
+ * (https://www.w3.org/TR/webrtc/#rtcicetransport-interface). Legacy: the real
+ * ICE agent now lives in src/ice/ice-agent.js.
  */
 
 const EventEmitter = require('events');

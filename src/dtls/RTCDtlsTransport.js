@@ -2,11 +2,10 @@
  * @file RTCDtlsTransport.js
  * @description DTLS transport implementation for WebRTC security layer.
  * @module dtls/RTCDtlsTransport
- * 
- * Ported from Chromium's RTCDtlsTransport implementation:
- * - cc/rtc_dtls_transport.h
- * - cc/rtc_dtls_transport.cc
- * - cc/rtc_dtls_transport.idl
+ *
+ * Implements the W3C RTCDtlsTransport interface
+ * (https://www.w3.org/TR/webrtc/#rtcdtlstransport-interface). Legacy: the real
+ * DTLS connection now lives in src/dtls/connection.js.
  */
 
 const EventEmitter = require('events');

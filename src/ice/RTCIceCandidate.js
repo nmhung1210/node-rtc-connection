@@ -1,9 +1,9 @@
 /**
  * @fileoverview RTCIceCandidate - ICE candidate representation.
- * 
- * Ported from Chromium's WebRTC implementation:
- * chromium/src/third_party/blink/renderer/modules/peerconnection/rtc_ice_candidate.{h,cc}
- * 
+ *
+ * Implements the W3C RTCIceCandidate interface
+ * (https://www.w3.org/TR/webrtc/#rtcicecandidate-interface).
+ *
  * Represents an ICE (Interactive Connectivity Establishment) candidate that
  * describes a potential way to establish a connection with a peer.
  * 

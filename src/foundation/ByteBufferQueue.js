@@ -1,9 +1,6 @@
 /**
  * @fileoverview ByteBufferQueue - Efficient byte buffer with O(1) append and O(n) read.
- * 
- * Ported from Chromium's WebRTC implementation:
- * chromium/src/third_party/blink/renderer/modules/peerconnection/byte_buffer_queue.{h,cc}
- * 
+ *
  * This class provides efficient management of byte buffers with O(1) append operations
  * and O(n) read operations. Clients can append entire buffers then copy data out across
  * buffer boundaries.

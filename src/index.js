@@ -1,18 +1,18 @@
 /**
  * @fileoverview node-rtc-connection - WebRTC DataChannel implementation for Node.js
- * 
- * A clean-room implementation of WebRTC peer connections and data channels
- * for Node.js, ported from Chromium's production WebRTC code.
- * 
+ *
+ * A from-scratch, pure-Node.js implementation of WebRTC peer connections and
+ * data channels (no native dependencies). Interoperates with browsers.
+ *
  * This implementation focuses on DataChannel functionality without media streams.
  * Features:
- * - ICE (Interactive Connectivity Establishment)
+ * - ICE (Interactive Connectivity Establishment), RFC 8445
  * - STUN/TURN support for NAT traversal
- * - DTLS encryption
- * - SCTP for reliable data channels
- * - Full WebRTC API compatibility
- * 
- * @license BSD-3-Clause
+ * - DTLS 1.2 encryption (RFC 6347)
+ * - SCTP over DTLS + DCEP for data channels (RFC 8831 / 8832)
+ * - W3C-compatible RTCPeerConnection / RTCDataChannel API
+ *
+ * @license MIT
  * @author nmhung1210
  */
 
