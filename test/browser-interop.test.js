@@ -1,83 +1,134 @@
 /**
  * @file browser-interop.test.js
- * @description End-to-end interop test: our Node RTCPeerConnection negotiates a
- * data channel with a real browser (Chromium, driven by Playwright) over actual
- * UDP, exercising ICE, DTLS, SCTP and DCEP together.
+ * @description End-to-end interop: our Node RTCPeerConnection exchanges data
+ * channel messages with a real browser (Chromium via Playwright) over actual
+ * UDP, exercising ICE, DTLS, SCTP and DCEP together. Data channels always run
+ * over DTLS (WebRTC mandates it).
  *
- * Playwright launches headless Chromium and points it at the in-process
- * signaling harness (test/browser/interop-server.js). The page runs a native
- * RTCPeerConnection as the answerer; the test asserts a data channel opens and
- * string + binary messages flow in both directions.
+ * Two network scenarios:
+ *   - direct: host candidates, no TURN.
+ *   - relay:  both peers forced to iceTransportPolicy:'relay' against coturn.
  *
- * Skipped when Playwright/Chromium are not installed or SKIP_INTEGRATION=1.
- * This is the authoritative proof of browser interoperability; lower layers
- * also have focused tests (dtls-openssl-interop, transport-stack, etc.).
+ * Each scenario sends a fixed set of payloads (ASCII, Unicode, small binary
+ * with edge bytes, a 16 KB binary that forces SCTP fragmentation, a 10 KB
+ * string); the browser echoes each verbatim and Node verifies byte-for-byte.
+ *
+ * Skips when Playwright/Chromium are unavailable or SKIP_INTEGRATION=1; the
+ * relay scenario additionally skips when no TURN server answers.
  */
 
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert');
-const { startServer } = require('./browser/interop-server');
+const { startServer, buildPayloads } = require('./browser/interop-server');
 
 const SKIP = process.env.SKIP_INTEGRATION === '1';
 
-/** Load Playwright + resolve the Chromium executable, or null if unavailable. */
+const TURN_HOST = process.env.TURN_HOST || '127.0.0.1';
+const TURN_PORT = parseInt(process.env.TURN_PORT || '3478', 10);
+const TURN_USER = process.env.TURN_USER || 'testuser';
+const TURN_PASS = process.env.TURN_PASS || 'testpass';
+const ICE_SERVERS = [{ urls: `turn:${TURN_HOST}:${TURN_PORT}`, username: TURN_USER, credential: TURN_PASS }];
+
 function loadPlaywright() {
   try {
     const { chromium } = require('playwright');
-    // Throws if the browser binary hasn't been installed.
-    chromium.executablePath();
+    chromium.executablePath(); // throws if the browser binary isn't installed
     return chromium;
   } catch (_) {
     return null;
   }
 }
 
+/** Can we allocate a relay against the configured TURN server? */
+function turnReachable(timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    const STUNClient = require('../src/stun/stun-client');
+    const c = new STUNClient({ server: TURN_HOST, port: TURN_PORT, username: TURN_USER, credential: TURN_PASS });
+    let done = false;
+    const finish = (ok) => { if (done) return; done = true; try { c.close(); } catch (_) {} resolve(ok); };
+    const t = setTimeout(() => finish(false), timeoutMs);
+    if (t.unref) t.unref();
+    c.allocateRelay(300).then(() => finish(true)).catch(() => finish(false));
+  });
+}
+
 const chromium = SKIP ? null : loadPlaywright();
+
+/**
+ * Drive one scenario end-to-end and return the collected harness events.
+ */
+async function runScenario(browser, { nodeConfig, browserConfig }) {
+  const results = [];
+  const { server, pc, port } = await startServer({
+    onResult: (r) => results.push(r),
+    nodeConfig,
+    browserConfig,
+  });
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  try {
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+
+    const isDone = () =>
+      results.some((r) => r.event === 'done') ||
+      results.some((r) => r.event === 'browser-error');
+
+    const deadline = Date.now() + 40000;
+    while (Date.now() < deadline && !isDone()) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return results;
+  } finally {
+    await context.close();
+    try { pc.close(); } catch (_) {}
+    try { server.close(); } catch (_) {}
+  }
+}
+
+/** Assert every payload echoed back correctly. */
+function assertAllEchoed(results) {
+  const browserError = results.find((r) => r.event === 'browser-error');
+  assert.ok(!browserError, `browser error: ${browserError && browserError.error}`);
+  assert.ok(results.some((r) => r.event === 'channel-open'), 'data channel never opened');
+
+  const echoes = results.filter((r) => r.event === 'echo');
+  const expectedIds = buildPayloads().map((p) => p.id);
+  for (const id of expectedIds) {
+    const e = echoes.find((r) => r.id === id);
+    assert.ok(e, `no echo received for payload "${id}" (events: ${JSON.stringify(results)})`);
+    assert.ok(e.ok, `payload "${id}" did not round-trip: ${e.detail}`);
+  }
+  assert.ok(results.some((r) => r.event === 'done'), 'sequence did not complete');
+}
 
 describe('Browser interop (Playwright + Chromium)', { skip: SKIP || !chromium }, () => {
   let browser;
+  let relayOk = false;
 
   before(async () => {
     browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    relayOk = await turnReachable();
   });
 
   after(async () => {
     if (browser) await browser.close();
   });
 
-  it('negotiates a data channel and exchanges string + binary with a browser', async () => {
-    // Collect the harness events emitted by both the Node peer and the page.
-    const results = [];
-    const { server, pc, port } = await startServer((r) => results.push(r));
+  it('transfers data correctly over a direct connection (no TURN, with DTLS)', async () => {
+    const results = await runScenario(browser, {
+      nodeConfig: { iceServers: [] },
+      browserConfig: { iceServers: [] },
+    });
+    assertAllEchoed(results);
+  });
 
-    const context = await browser.newContext();
-    const page = await context.newPage();
-
-    try {
-      await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
-
-      const has = (pred) => results.some(pred);
-      const want = {
-        browserChannelOpen: () => has((r) => r.event === 'browser-channel-open'),
-        browserReceived: () => has((r) => r.event === 'browser-received' && /hello-from-node/.test(r.data || '')),
-        nodeReceivedText: () => has((r) => r.event === 'node-received' && /hello-from-browser/.test(r.data || '')),
-        nodeReceivedBinary: () => has((r) => r.event === 'node-received' && /binary/.test(r.data || '')),
-      };
-      const done = () => want.browserReceived() && want.nodeReceivedText() && want.nodeReceivedBinary();
-
-      const deadline = Date.now() + 30000;
-      while (Date.now() < deadline && !done()) {
-        await new Promise((r) => setTimeout(r, 200));
-      }
-
-      assert.ok(want.browserChannelOpen(), `browser did not open the channel; events: ${JSON.stringify(results)}`);
-      assert.ok(want.browserReceived(), 'browser did not receive the Node string');
-      assert.ok(want.nodeReceivedText(), 'Node did not receive the browser string');
-      assert.ok(want.nodeReceivedBinary(), 'Node did not receive the browser binary frame');
-    } finally {
-      await context.close();
-      try { pc.close(); } catch (_) {}
-      try { server.close(); } catch (_) {}
-    }
+  it('transfers data correctly over a TURN relay (with DTLS)', async (t) => {
+    if (!relayOk) return t.skip('no TURN server reachable');
+    const results = await runScenario(browser, {
+      nodeConfig: { iceServers: ICE_SERVERS, iceTransportPolicy: 'relay' },
+      browserConfig: { iceServers: ICE_SERVERS, iceTransportPolicy: 'relay' },
+    });
+    assertAllEchoed(results);
   });
 });
