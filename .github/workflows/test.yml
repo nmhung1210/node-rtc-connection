@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     services:
       coturn:
         image: coturn/coturn:latest
@@ -29,26 +29,43 @@ jobs:
           --no-tls
           --no-dtls
           --verbose
-    
+
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
-    
+        node-version: [20.x, 22.x, 24.x]
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
+      # openssl is preinstalled on ubuntu-latest and drives the DTLS interop
+      # tests (test/dtls-openssl-interop.test.js). Chrome enables the end-to-end
+      # browser interop test (test/browser-interop.test.js); both suites skip
+      # automatically if their tool is missing.
+      - name: Show toolchain versions
+        run: |
+          node --version
+          openssl version
+
+      - name: Install Google Chrome (for browser interop test)
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
       - name: Verify TURN server
         run: |
           echo "Checking if TURN server is accessible..."
-          timeout 10 bash -c 'until nc -zv 127.0.0.1 3478; do sleep 1; done' || echo "TURN server not responding (tests may skip TURN)"
-      
+          timeout 10 bash -c 'until nc -zv 127.0.0.1 3478; do sleep 1; done' || echo "TURN server not responding (TURN tests may skip)"
+
       - name: Run all tests
         run: npm test
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
