@@ -30,10 +30,9 @@
     "test:turn": "node --test test/TURN.test.js",
     "test:turn-integration": "node --test test/turn-integration.test.js",
     "test:turn-all": "node --test test/TURN.test.js test/turn-integration.test.js",
-    "example": "node examples/real-networking.js",
-    "example:simple": "node examples/simple-datachannel.js",
-    "example:stun": "node examples/with-stun-encryption.js",
-    "example:turn": "node examples/with-turn-relay.js",
+    "example": "node examples/browser-server.js",
+    "example:browser": "node examples/browser-server.js",
+    "example:node": "node examples/node-to-node.js",
     "release:patch": "npm version patch && git push && git push --tags",
     "release:minor": "npm version minor && git push && git push --tags",
     "release:major": "npm version major && git push && git push --tags"
