@@ -5,6 +5,7 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+  workflow_call: # allow other workflows (e.g. publish) to run this as a gate
 
 jobs:
   test:
