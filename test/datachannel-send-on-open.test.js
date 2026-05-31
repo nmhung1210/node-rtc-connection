@@ -1,112 +1,56 @@
 /**
  * @file datachannel-send-on-open.test.js
- * @description Test that data channel has _send method when 'open' event fires
+ * @description Tests the RTCDataChannel transport-sender contract. Channels
+ * deliver outbound data through an injected sender (set by the SCTP data
+ * channel manager) rather than the legacy network-transport `_send` hook.
  */
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const { RTCDataChannel } = require('../src/index');
 
-describe('Data Channel Send on Open', () => {
-  it('should have _send method defined before open event fires', () => {
-    return new Promise((resolve, reject) => {
-      const channel = new RTCDataChannel('test');
-      
-      channel.on('open', () => {
-        try {
-          // Verify _send is defined when open event fires
-          assert.ok(channel._send, 'channel._send should be defined when open fires');
-          assert.strictEqual(typeof channel._send, 'function', 'channel._send should be a function');
-          resolve();
-        } catch (err) {
-          reject(err);
-        }
-      });
-
-      // Simulate connecting channel to network (what RTCPeerConnection does)
-      channel._send = async (data) => {
-        // Mock send function
-        return Promise.resolve();
-      };
-      
-      // Then open the channel (this is the correct order after the fix)
-      channel._setStateToOpen();
-    });
-  });
-
-  it('should throw error if send() called before _send is set', () => {
+describe('Data Channel sender contract', () => {
+  it('invokes the sender with (Buffer, isBinary=false) for strings', () => {
     const channel = new RTCDataChannel('test');
-    
-    // Directly set to open without setting _send (wrong order)
+    let captured = null;
+    channel._setSender((data, isBinary) => { captured = { data, isBinary }; });
     channel._setStateToOpen();
-    
-    // Should throw because _send is not set
-    assert.throws(() => {
-      channel.send('test data');
-    }, {
-      message: 'Data channel not connected to network transport'
-    });
+
+    channel.send('hello');
+    assert.ok(Buffer.isBuffer(captured.data));
+    assert.strictEqual(captured.data.toString(), 'hello');
+    assert.strictEqual(captured.isBinary, false);
   });
 
-  it('should not throw if send() called after _send is set', () => {
+  it('invokes the sender with isBinary=true for ArrayBuffer/typed arrays', () => {
     const channel = new RTCDataChannel('test');
-    
-    // Correct order: set _send first
-    channel._send = async (data) => Promise.resolve();
-    
-    // Then open
+    let captured = null;
+    channel._setSender((data, isBinary) => { captured = { data, isBinary }; });
     channel._setStateToOpen();
-    
-    // Should not throw
-    assert.doesNotThrow(() => {
-      channel.send('test data');
-    });
+
+    channel.send(Uint8Array.from([1, 2, 3]).buffer);
+    assert.ok(Buffer.isBuffer(captured.data));
+    assert.deepStrictEqual([...captured.data], [1, 2, 3]);
+    assert.strictEqual(captured.isBinary, true);
   });
 
-  it('should allow sending immediately in open handler if _send is set first', () => {
-    return new Promise((resolve, reject) => {
-      const channel = new RTCDataChannel('test');
-      
-      channel.on('open', () => {
-        try {
-          // This should not throw
-          assert.doesNotThrow(() => {
-            channel.send('test data');
-          });
-          resolve();
-        } catch (err) {
-          reject(err);
-        }
-      });
-
-      // Correct order: set _send BEFORE opening
-      channel._send = async (data) => Promise.resolve();
-      channel._setStateToOpen();
-    });
+  it('throws if send() is called before a sender is attached', () => {
+    const channel = new RTCDataChannel('test');
+    channel._setStateToOpen();
+    assert.throws(() => channel.send('x'), /not connected to a transport/);
   });
 
-  it('should fail to send in open handler if _send is set after (wrong order)', () => {
-    return new Promise((resolve) => {
-      const channel = new RTCDataChannel('test');
-      let errorThrown = false;
-      
-      channel.on('open', () => {
-        // This should throw because _send is not set yet
-        try {
-          channel.send('test data');
-        } catch (err) {
-          errorThrown = true;
-          assert.strictEqual(err.message, 'Data channel not connected to network transport');
-        }
-        
-        // Verify error was thrown
-        assert.ok(errorThrown, 'Expected error to be thrown when _send not set');
-        resolve();
-      });
+  it('throws if send() is called while not open', () => {
+    const channel = new RTCDataChannel('test');
+    channel._setSender(() => {});
+    assert.throws(() => channel.send('x'), /readyState is not "open"/);
+  });
 
-      // Wrong order: open BEFORE setting _send
-      channel._setStateToOpen();
-      channel._send = async (data) => Promise.resolve();
-    });
+  it('decrements bufferedAmount after the sender accepts the data', () => {
+    const channel = new RTCDataChannel('test');
+    channel._setSender(() => {});
+    channel._setStateToOpen();
+    channel.send('abcde');
+    assert.strictEqual(channel.bufferedAmount, 0);
   });
 });

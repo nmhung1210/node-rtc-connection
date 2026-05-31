@@ -326,21 +326,22 @@ describe('RTCDataChannel', () => {
       channel._setStateToOpen();
     });
 
-    it('should emit message event', (t, done) => {
+    it('should emit a string message for non-binary frames', (t, done) => {
       channel.on('message', (event) => {
         assert.strictEqual(event.data, 'Hello');
         done();
       });
-      channel._onMessage('Hello');
+      channel._receiveMessage(Buffer.from('Hello', 'utf8'), false);
     });
 
-    it('should emit message event with Buffer', (t, done) => {
+    it('should emit binary frames as ArrayBuffer by default', (t, done) => {
       const buffer = Buffer.from([1, 2, 3]);
       channel.on('message', (event) => {
-        assert.deepStrictEqual(event.data, buffer);
+        assert.ok(event.data instanceof ArrayBuffer);
+        assert.deepStrictEqual(new Uint8Array(event.data), new Uint8Array([1, 2, 3]));
         done();
       });
-      channel._onMessage(buffer);
+      channel._receiveMessage(buffer, true);
     });
   });
 

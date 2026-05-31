@@ -2,11 +2,9 @@
  * @file RTCDataChannel.js
  * @description WebRTC DataChannel implementation for peer-to-peer data transfer.
  * @module datachannel/RTCDataChannel
- * 
- * Ported from Chromium's RTCDataChannel implementation:
- * - cc/rtc_data_channel.h
- * - cc/rtc_data_channel.cc
- * - cc/rtc_data_channel.idl
+ *
+ * Implements the W3C RTCDataChannel interface
+ * (https://www.w3.org/TR/webrtc/#rtcdatachannel).
  */
 
 const EventEmitter = require('events');
@@ -226,16 +224,24 @@ class RTCDataChannel extends EventEmitter {
 
     let dataToSend;
     let byteLength = 0;
+    let isBinary;
 
     if (typeof data === 'string') {
       dataToSend = Buffer.from(data, 'utf8');
       byteLength = dataToSend.length;
+      isBinary = false;
     } else if (data instanceof ArrayBuffer) {
       dataToSend = Buffer.from(data);
       byteLength = data.byteLength;
+      isBinary = true;
     } else if (ArrayBuffer.isView(data)) {
       dataToSend = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
       byteLength = data.byteLength;
+      isBinary = true;
+    } else if (Buffer.isBuffer(data)) {
+      dataToSend = data;
+      byteLength = data.length;
+      isBinary = true;
     } else if (data && typeof data.arrayBuffer === 'function') {
       // Blob-like object
       throw new Error('Blob sending not yet implemented');
@@ -243,18 +249,24 @@ class RTCDataChannel extends EventEmitter {
       throw new TypeError('Invalid data type');
     }
 
-    // Update buffered amount
-    this._bufferedAmount += byteLength;
-
-    // Use real network transport
-    if (!this._send) {
-      throw new Error('Data channel not connected to network transport');
+    // The sender carries the binary flag so the peer can reconstruct the right
+    // JS type; binary is transmitted as raw bytes (no JSON), fixing prior
+    // corruption of Buffer/ArrayBuffer payloads.
+    if (!this._sender) {
+      throw new Error('Data channel not connected to a transport');
     }
-    
-    this._send(data).catch(err => {
-      console.error('Send error:', err);
+
+    // Update buffered amount, then decrement once the transport accepts it.
+    this._bufferedAmount += byteLength;
+    try {
+      this._sender(dataToSend, isBinary);
+      this._bufferedAmount = Math.max(0, this._bufferedAmount - byteLength);
+      this._emitBufferedAmountLow();
+    } catch (err) {
+      this._bufferedAmount = Math.max(0, this._bufferedAmount - byteLength);
       this.emit('error', err);
-    });
+      throw err;
+    }
   }
 
   /**
@@ -318,24 +330,37 @@ class RTCDataChannel extends EventEmitter {
   }
 
   /**
-   * Handle received message (internal use).
-   * @param {Buffer|string} data - Received data
+   * Deliver a received message to listeners (internal use).
+   *
+   * Mirrors the browser RTCDataChannel: text frames surface as a string;
+   * binary frames surface as an ArrayBuffer (binaryType 'arraybuffer') or a
+   * Node Buffer (binaryType 'blob', which we approximate with Buffer since
+   * Node has no Blob in older runtimes).
+   *
+   * @param {Buffer} data - Raw received bytes
+   * @param {boolean} isBinary - Whether the frame was binary
    * @private
    */
-  _onMessage(data) {
-    const event = {
-      data: data
-    };
-    this.emit('message', event);
+  _receiveMessage(data, isBinary) {
+    let payload;
+    if (!isBinary) {
+      payload = data.toString('utf8');
+    } else if (this._binaryType === 'arraybuffer') {
+      payload = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    } else {
+      payload = data;
+    }
+    this.emit('message', { data: payload });
   }
 
   /**
-   * Receive message from network transport (internal use).
-   * @param {any} data - Received data
+   * Attach the transport sender (internal use). The sender is called with
+   * (Buffer, isBinary) and is responsible for SCTP delivery.
+   * @param {(data:Buffer, isBinary:boolean)=>void} sender
    * @private
    */
-  _receiveMessage(data) {
-    this._onMessage(data);
+  _setSender(sender) {
+    this._sender = sender;
   }
 
   /**
