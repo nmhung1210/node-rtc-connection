@@ -11,13 +11,13 @@ API. It targets data channels only — no media streams.
 ## Commands
 
 ```bash
-npm run build            # Bundle src/ → dist/index.cjs + dist/index.mjs (rollup)
-npm test                 # Run all *.test.js via test/run-all-tests.js (node:test)
-npm run test:ci          # Reproduce CI locally: start coturn, run the full suite
-npm run test:unit        # Unit tests only, SKIP_INTEGRATION=1
-npm run test:integration # Integration suites only
-npm run test:turn        # TURN plumbing + end-to-end relay (needs coturn)
-npm run test:watch       # node --test --watch
+npm run build              # Bundle src/ → dist/index.cjs + dist/index.mjs (rollup)
+npm test                   # Run all *.test.js via test/run-all-tests.js (node:test)
+npm run test:ci            # Reproduce CI locally: ensure Chromium, run full suite
+npm run test:unit          # Unit tests only, SKIP_INTEGRATION=1 (no external deps)
+npm run test:coverage      # Full suite under c8; report to coverage/ (text + lcov)
+npm run test:coverage:check # Same, but fail if below .c8rc.json thresholds (CI)
+npm run test:watch         # node --test --watch
 
 # Run a single test file
 node --test test/RTCDataChannel.test.js
@@ -134,6 +134,16 @@ Interop tests skip gracefully when their dependency is absent or
 Browsers obfuscate host candidates as mDNS `.local` hostnames; the ICE agent
 skips those (no resolver) and connects via the peer-reflexive candidate learned
 from the browser's inbound checks.
+
+### Coverage
+
+`npm run test:coverage` runs the full suite under c8 (config in `.c8rc.json`,
+scoped to `src/`). Baseline is ~91% lines / ~81% branches / ~90% functions;
+`.c8rc.json` sets regression thresholds a few points below, enforced by
+`test:coverage:check` (the CI `coverage` job). For accurate numbers run with
+coturn + Chromium available — `SKIP_INTEGRATION=1` undercounts the relay/browser
+paths. Lowest-covered modules are the legacy off-data-path classes
+(`RTCIceTransport.js`, `stun-client.js` server branches).
 
 ## Conventions
 
