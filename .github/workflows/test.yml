@@ -62,5 +62,9 @@ jobs:
           echo "Checking if TURN server is accessible..."
           timeout 10 bash -c 'until nc -zv 127.0.0.1 3478; do sleep 1; done' || echo "TURN server not responding (TURN tests may skip)"
 
+      # TURN_HOST tells run-all-tests.js a TURN server is already provided (the
+      # coturn service container above), so it won't try to start its own.
       - name: Run all tests
         run: npm test
+        env:
+          TURN_HOST: 127.0.0.1

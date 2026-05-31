@@ -25,11 +25,12 @@ node --test test/RTCDataChannel.test.js
 node --test --test-name-pattern="creates a data channel" test/RTCDataChannel.test.js
 ```
 
-`npm run test:ci` (`scripts/ci-local.sh`) mirrors `.github/workflows/test.yml`:
-it starts a `coturn` container (same image/creds/ports), ensures Playwright's
-Chromium is installed, runs `npm test`, and tears coturn down. It needs Docker
-for the TURN test; without it (or with `SKIP_INTEGRATION=1`) the integration
-suites skip.
+`npm test` (`test/run-all-tests.js`) starts a `coturn` container before the
+suite and tears it down after, so the TURN relay test runs locally without setup
+(skipped if Docker is unavailable, `SKIP_INTEGRATION=1`, or `TURN_HOST` already
+points at an external server). `npm run test:ci` (`scripts/ci-local.sh`) wraps
+`npm test`, additionally ensuring Playwright's Chromium is installed for the
+browser test — mirroring `.github/workflows/test.yml`.
 
 `SKIP_INTEGRATION=1` is honored by tests that open real sockets / reach external
 STUN/TURN servers — set it when working offline. CI runs the full suite against

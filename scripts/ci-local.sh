@@ -1,107 +1,22 @@
 #!/usr/bin/env bash
 #
-# ci-local.sh — run the test suite locally the way .github/workflows/test.yml
-# does in CI: start a coturn TURN server, make openssl/Chrome discoverable, run
-# `npm test`, then tear coturn down.
+# ci-local.sh — run the test suite locally like .github/workflows/test.yml.
+# Ensures Playwright's Chromium is installed, then runs `npm test`, which itself
+# starts/stops a coturn TURN server for the relay test (see run-all-tests.js).
+# Dependency-gated suites (TURN, DTLS-vs-openssl, browser) skip gracefully if
+# their tool is missing.
 #
-# Mirrors the CI job's coturn config and credentials so the TURN end-to-end test
-# (test/turn-e2e.test.js) actually exercises a relay locally. Dependency-gated
-# suites (TURN, DTLS-vs-openssl, browser) skip gracefully if their tool is
-# missing, exactly as in CI.
-#
-# Usage:
-#   scripts/ci-local.sh                 # full run (starts coturn, runs npm test)
-#   SKIP_INTEGRATION=1 scripts/ci-local.sh   # unit only; no coturn, no interop
-#   CHROME_PATH=/path/to/chrome scripts/ci-local.sh   # override Chrome discovery
+#   scripts/ci-local.sh                     # full run
+#   SKIP_INTEGRATION=1 scripts/ci-local.sh  # unit only (no coturn, no browser)
 #
 set -uo pipefail
-
 cd "$(dirname "$0")/.."
 
-COTURN_NAME="nodertc-coturn-local"
-STARTED_COTURN=0
-
-log()  { printf '\033[36m[ci-local]\033[0m %s\n' "$*"; }
-warn() { printf '\033[33m[ci-local]\033[0m %s\n' "$*"; }
-
-cleanup() {
-  if [ "$STARTED_COTURN" = "1" ]; then
-    log "Stopping coturn ($COTURN_NAME)"
-    docker rm -f "$COTURN_NAME" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT INT TERM
-
-# ---------------------------------------------------------------------------
-# 1. Toolchain versions (CI: "Show toolchain versions")
-# ---------------------------------------------------------------------------
-log "Toolchain:"
-node --version
-npm --version
-if command -v openssl >/dev/null 2>&1; then
-  openssl version
-else
-  warn "openssl not found — DTLS interop tests will skip"
+if [ "${SKIP_INTEGRATION:-0}" != "1" ]; then
+  # Playwright Chromium for the browser interop test.
+  node -e "require('playwright').chromium.executablePath()" >/dev/null 2>&1 \
+    || npx playwright install chromium >/dev/null 2>&1 \
+    || echo "[ci-local] Chromium unavailable — browser test will skip"
 fi
 
-# ---------------------------------------------------------------------------
-# 2. Playwright Chromium (CI: npx playwright install --with-deps chromium)
-# ---------------------------------------------------------------------------
-# The browser interop test uses Playwright's bundled Chromium. Ensure it's
-# installed; if not, install it (browser only — deps are assumed present
-# locally). Without it, the browser interop test skips.
-if [ "${SKIP_INTEGRATION:-0}" = "1" ]; then
-  warn "SKIP_INTEGRATION=1 — skipping Playwright browser setup"
-elif node -e "require('playwright').chromium.executablePath()" >/dev/null 2>&1; then
-  log "Playwright Chromium present"
-else
-  log "Installing Playwright Chromium..."
-  npx playwright install chromium >/dev/null 2>&1 \
-    && log "Playwright Chromium installed" \
-    || warn "Could not install Playwright Chromium — browser interop test will skip"
-fi
-
-# ---------------------------------------------------------------------------
-# 3. Start coturn (CI: services.coturn) — same image, ports, creds, realm.
-# ---------------------------------------------------------------------------
-if [ "${SKIP_INTEGRATION:-0}" = "1" ]; then
-  warn "SKIP_INTEGRATION=1 — not starting coturn; integration suites will skip"
-elif ! command -v docker >/dev/null 2>&1; then
-  warn "docker not found — not starting coturn; TURN test will skip"
-elif ! docker info >/dev/null 2>&1; then
-  warn "docker daemon not reachable — not starting coturn; TURN test will skip"
-else
-  log "Starting coturn ($COTURN_NAME) on 3478"
-  docker rm -f "$COTURN_NAME" >/dev/null 2>&1 || true
-  if docker run -d --name "$COTURN_NAME" \
-      -p 3478:3478/udp -p 3478:3478/tcp \
-      coturn/coturn:latest \
-      -n --listening-port=3478 --fingerprint --lt-cred-mech \
-      --user=testuser:testpass --user=nodertc:nodertcpass \
-      --realm=nodertc.local --no-tls --no-dtls >/dev/null 2>&1; then
-    STARTED_COTURN=1
-    # CI: "Verify TURN server" — wait until the port answers.
-    log "Waiting for coturn to accept connections..."
-    for i in $(seq 1 10); do
-      if command -v nc >/dev/null 2>&1 && nc -z 127.0.0.1 3478 2>/dev/null; then break; fi
-      sleep 1
-    done
-    sleep 1  # let the UDP listener settle
-  else
-    warn "Failed to start coturn — TURN test will skip"
-  fi
-fi
-
-# ---------------------------------------------------------------------------
-# 4. Run the suite (CI: "Run all tests" -> npm test)
-# ---------------------------------------------------------------------------
-log "Running: npm test"
 npm test
-status=$?
-
-if [ $status -eq 0 ]; then
-  log "All tests passed."
-else
-  warn "Tests failed (exit $status)."
-fi
-exit $status
