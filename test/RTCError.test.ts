@@ -2,9 +2,9 @@
  * Test suite for RTCError
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const RTCError = require('../src/foundation/RTCError');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import RTCError from '../src/foundation/RTCError';
 
 describe('RTCError', () => {
   describe('construction', () => {
@@ -44,13 +44,13 @@ describe('RTCError', () => {
     it('should have stack trace', () => {
       const error = new RTCError({}, 'Test');
       assert.ok(error.stack);
-      assert.ok(error.stack.includes('RTCError'));
+      assert.ok(error.stack!.includes('RTCError'));
     });
   });
 
   describe('validation', () => {
     it('should throw if errorDetail is not a string', () => {
-      assert.throws(() => new RTCError({ errorDetail: 123 }), TypeError);
+      assert.throws(() => new RTCError({ errorDetail: 123 as any }), TypeError);
     });
 
     it('should throw if sdpLineNumber is not an integer', () => {
@@ -70,7 +70,7 @@ describe('RTCError', () => {
         sdpLineNumber: null,
         receivedAlert: undefined
       }, 'Test');
-      
+
       assert.strictEqual(error.sdpLineNumber, null);
       assert.strictEqual(error.receivedAlert, null);
     });
@@ -91,7 +91,7 @@ describe('RTCError', () => {
         sdpLineNumber: 42,
         sctpCauseCode: 99
       }, 'Test');
-      
+
       assert.strictEqual(error.sdpLineNumber, 42);
       assert.strictEqual(error.sctpCauseCode, 99);
     });
@@ -101,7 +101,7 @@ describe('RTCError', () => {
     it('should serialize minimal error', () => {
       const error = new RTCError({}, 'Test message');
       const json = error.toJSON();
-      
+
       assert.deepStrictEqual(json, {
         name: 'RTCError',
         message: 'Test message',
@@ -118,9 +118,9 @@ describe('RTCError', () => {
         receivedAlert: 10,
         sentAlert: 20
       }, 'Data channel error');
-      
+
       const json = error.toJSON();
-      
+
       assert.deepStrictEqual(json, {
         name: 'RTCError',
         message: 'Data channel error',
@@ -138,7 +138,7 @@ describe('RTCError', () => {
         errorDetail: 'dtls-failure',
         sdpLineNumber: 1
       }, 'Test');
-      
+
       const json = error.toJSON();
       assert.ok(!('httpRequestStatusCode' in json));
       assert.ok(!('sctpCauseCode' in json));
@@ -152,9 +152,9 @@ describe('RTCError', () => {
         sctp_cause_code: 42,
         message: 'SCTP error occurred'
       };
-      
+
       const error = RTCError.fromNative(nativeError);
-      
+
       assert.strictEqual(error.errorDetail, 'sctp-failure');
       assert.strictEqual(error.sctpCauseCode, 42);
       assert.strictEqual(error.message, 'SCTP error occurred');
@@ -164,7 +164,7 @@ describe('RTCError', () => {
       const nativeError = {
         message: 'Unknown error'
       };
-      
+
       const error = RTCError.fromNative(nativeError);
       assert.strictEqual(error.errorDetail, 'none');
       assert.strictEqual(error.message, 'Unknown error');
@@ -184,7 +184,7 @@ describe('RTCError', () => {
     it('should be frozen', () => {
       'use strict';
       assert.throws(() => {
-        RTCError.DetailType.NONE = 'modified';
+        (RTCError.DetailType as any).NONE = 'modified';
       }, TypeError);
     });
   });

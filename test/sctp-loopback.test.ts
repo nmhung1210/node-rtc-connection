@@ -1,18 +1,18 @@
 /**
- * @file sctp-loopback.test.js
+ * @file sctp-loopback.test.ts
  * @description SCTP association + DCEP over an in-memory datagram pipe.
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const { SctpAssociation } = require('../src/sctp/association');
-const dcep = require('../src/sctp/dcep');
-const { PPID } = require('../src/sctp/chunks');
-const { verifyChecksum } = require('../src/sctp/crc32c');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import { SctpAssociation } from '../src/sctp/association';
+import * as dcep from '../src/sctp/dcep';
+import { PPID } from '../src/sctp/chunks';
+import { verifyChecksum } from '../src/sctp/crc32c';
 
-function wire(a, b) {
-  a.on('output', (pkt) => { const c = Buffer.from(pkt); setImmediate(() => b.receivePacket(c)); });
-  b.on('output', (pkt) => { const c = Buffer.from(pkt); setImmediate(() => a.receivePacket(c)); });
+function wire(a: any, b: any) {
+  a.on('output', (pkt: any) => { const c = Buffer.from(pkt); setImmediate(() => b.receivePacket(c)); });
+  b.on('output', (pkt: any) => { const c = Buffer.from(pkt); setImmediate(() => a.receivePacket(c)); });
 }
 
 /** Create a wired, established client/server pair. */
@@ -39,7 +39,7 @@ describe('SCTP association', () => {
 
   it('delivers a small message', async () => {
     const { client, server } = await establishedPair();
-    const gotS = new Promise((r) => server.on('message', r));
+    const gotS = new Promise<any>((r) => server.on('message', r));
     client.sendData(1, PPID.STRING, Buffer.from('hello-sctp'));
     const msg = await gotS;
     assert.strictEqual(msg.streamId, 1);
@@ -51,7 +51,7 @@ describe('SCTP association', () => {
     const { client, server } = await establishedPair();
     const big = Buffer.alloc(5000);
     for (let i = 0; i < big.length; i++) big[i] = i & 0xff;
-    const gotS = new Promise((r) => server.on('message', r));
+    const gotS = new Promise<any>((r) => server.on('message', r));
     client.sendData(3, PPID.BINARY, big);
     const msg = await gotS;
     assert.strictEqual(msg.data.length, 5000);
@@ -60,13 +60,13 @@ describe('SCTP association', () => {
 
   it('carries a DCEP open/ack exchange', async () => {
     const { client, server } = await establishedPair();
-    server.on('message', (m) => {
+    server.on('message', (m: any) => {
       if (m.ppid === PPID.DCEP && dcep.messageType(m.data) === dcep.MESSAGE_TYPE.DATA_CHANNEL_OPEN) {
         server.sendData(m.streamId, PPID.DCEP, dcep.encodeAck());
       }
     });
-    const ackSeen = new Promise((r) => {
-      client.on('message', (m) => {
+    const ackSeen = new Promise<any>((r) => {
+      client.on('message', (m: any) => {
         if (m.ppid === PPID.DCEP && dcep.messageType(m.data) === dcep.MESSAGE_TYPE.DATA_CHANNEL_ACK) r(m);
       });
     });
@@ -78,8 +78,8 @@ describe('SCTP association', () => {
 
   it('produces packets with valid CRC32c checksums', async () => {
     const client = new SctpAssociation({ isClient: true });
-    let firstPacket = null;
-    client.on('output', (p) => { if (!firstPacket) firstPacket = Buffer.from(p); });
+    let firstPacket: Buffer | null = null;
+    client.on('output', (p: any) => { if (!firstPacket) firstPacket = Buffer.from(p); });
     client.start();
     await new Promise((r) => setImmediate(r));
     assert.ok(firstPacket);

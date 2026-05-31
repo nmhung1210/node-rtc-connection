@@ -1,13 +1,13 @@
 /**
- * @file ice-agent.test.js
+ * @file ice-agent.test.ts
  * @description RFC 8445 connectivity-check loopback for the ICE agent, plus
  * STUN message integrity/fingerprint checks.
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const { IceAgent } = require('../src/ice/ice-agent');
-const S = require('../src/ice/stun-message');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import { IceAgent } from '../src/ice/ice-agent';
+import * as S from '../src/ice/stun-message';
 
 describe('STUN message codec', () => {
   it('builds messages whose MESSAGE-INTEGRITY verifies and FINGERPRINT is valid', () => {
@@ -53,7 +53,7 @@ describe('ICE agent connectivity', () => {
       assert.ok(b.getSelectedPair() || true); // controlled selects on USE-CANDIDATE
 
       // Application (DTLS-tagged) datagram must demux to 'data', not STUN.
-      const received = new Promise((r) => b.on('data', (msg) => r(msg)));
+      const received = new Promise<any>((r) => b.on('data', (msg: any) => r(msg)));
       a.send(Buffer.from([22, 0xfe, 0xfd, 1, 2, 3]));
       const msg = await received;
       assert.strictEqual(msg[0], 22);

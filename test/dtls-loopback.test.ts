@@ -1,14 +1,14 @@
 /**
- * @file dtls-loopback.test.js
+ * @file dtls-loopback.test.ts
  * @description DTLS client<->server handshake over an in-memory channel.
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const { DtlsConnection, ROLE } = require('../src/dtls/connection');
-const x509 = require('../src/crypto/x509');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import { DtlsConnection, ROLE } from '../src/dtls/connection';
+import * as x509 from '../src/crypto/x509';
 
-function makePeer(role, output, certInfo) {
+function makePeer(role: any, output: any, certInfo: any) {
   return new DtlsConnection({
     role,
     certDer: certInfo.certDer,
@@ -22,9 +22,9 @@ describe('DTLS loopback handshake', () => {
     const clientCert = x509.generateSelfSigned({ commonName: 'client' });
     const serverCert = x509.generateSelfSigned({ commonName: 'server' });
 
-    let client, server;
+    let client: any, server: any;
     // Wire the two connections together with async delivery.
-    const deliver = (to) => (datagram) => {
+    const deliver = (to: any) => (datagram: any) => {
       const copy = Buffer.from(datagram);
       setImmediate(() => to().handlePacket(copy));
     };
@@ -49,8 +49,8 @@ describe('DTLS loopback handshake', () => {
     assert.ok(client.getRemoteCertificate().equals(serverCert.certDer));
 
     // Application data both directions.
-    const gotOnServer = new Promise((res) => server.on('data', res));
-    const gotOnClient = new Promise((res) => client.on('data', res));
+    const gotOnServer = new Promise<any>((res) => server.on('data', res));
+    const gotOnClient = new Promise<any>((res) => client.on('data', res));
 
     client.send(Buffer.from('hello-from-client'));
     server.send(Buffer.from('hello-from-server'));
@@ -63,8 +63,8 @@ describe('DTLS loopback handshake', () => {
     const clientCert = x509.generateSelfSigned({ commonName: 'client' });
     const serverCert = x509.generateSelfSigned({ commonName: 'server' });
 
-    let client, server;
-    const deliver = (to) => (d) => { const c = Buffer.from(d); setImmediate(() => to().handlePacket(c)); };
+    let client: any, server: any;
+    const deliver = (to: any) => (d: any) => { const c = Buffer.from(d); setImmediate(() => to().handlePacket(c)); };
 
     client = new DtlsConnection({
       role: ROLE.CLIENT, certDer: clientCert.certDer, privateKey: clientCert.privateKey,
@@ -73,7 +73,7 @@ describe('DTLS loopback handshake', () => {
     });
     server = makePeer(ROLE.SERVER, deliver(() => client), serverCert);
 
-    const failed = new Promise((res) => client.on('error', res));
+    const failed = new Promise<any>((res) => client.on('error', res));
     server.start();
     client.start();
 

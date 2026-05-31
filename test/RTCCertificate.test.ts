@@ -1,17 +1,17 @@
 /**
- * @file RTCCertificate.test.js
+ * @file RTCCertificate.test.ts
  * @description Test suite for RTCCertificate
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const RTCCertificate = require('../src/dtls/RTCCertificate.js');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import RTCCertificate from '../src/dtls/RTCCertificate';
 
 describe('RTCCertificate', () => {
   describe('generateCertificate', () => {
     it('should generate a certificate with default options', async () => {
       const cert = await RTCCertificate.generateCertificate();
-      
+
       assert.ok(cert instanceof RTCCertificate);
       assert.ok(typeof cert.expires === 'number');
       assert.ok(cert.expires > Date.now());
@@ -22,7 +22,7 @@ describe('RTCCertificate', () => {
       const cert = await RTCCertificate.generateCertificate({
         name: 'test-peer'
       });
-      
+
       assert.ok(cert instanceof RTCCertificate);
     });
 
@@ -31,7 +31,7 @@ describe('RTCCertificate', () => {
       const cert = await RTCCertificate.generateCertificate({
         expires: futureTime
       });
-      
+
       assert.ok(Math.abs(cert.expires - futureTime) < 1000); // Within 1 second
     });
 
@@ -39,7 +39,7 @@ describe('RTCCertificate', () => {
       const cert = await RTCCertificate.generateCertificate({
         days: 60
       });
-      
+
       const expectedExpires = Date.now() + (60 * 24 * 60 * 60 * 1000);
       assert.ok(Math.abs(cert.expires - expectedExpires) < 5000); // Within 5 seconds
     });
@@ -49,10 +49,10 @@ describe('RTCCertificate', () => {
     it('should return array of fingerprints', async () => {
       const cert = await RTCCertificate.generateCertificate();
       const fingerprints = cert.getFingerprints();
-      
+
       assert.ok(Array.isArray(fingerprints));
       assert.ok(fingerprints.length > 0);
-      
+
       fingerprints.forEach(fp => {
         assert.ok(typeof fp.algorithm === 'string');
         assert.ok(typeof fp.value === 'string');
@@ -63,7 +63,7 @@ describe('RTCCertificate', () => {
     it('should include sha-256 fingerprint', async () => {
       const cert = await RTCCertificate.generateCertificate();
       const fingerprints = cert.getFingerprints();
-      
+
       const sha256 = fingerprints.find(fp => fp.algorithm === 'sha-256');
       assert.ok(sha256);
       assert.ok(sha256.value.length > 0);
@@ -73,7 +73,7 @@ describe('RTCCertificate', () => {
       const cert = await RTCCertificate.generateCertificate();
       const fp1 = cert.getFingerprints();
       const fp2 = cert.getFingerprints();
-      
+
       assert.deepStrictEqual(fp1, fp2);
     });
 
@@ -81,7 +81,7 @@ describe('RTCCertificate', () => {
       const cert = await RTCCertificate.generateCertificate();
       const fp1 = cert.getFingerprints();
       const fp2 = cert.getFingerprints();
-      
+
       // Different array instances
       assert.notStrictEqual(fp1, fp2);
       // But same content
@@ -91,7 +91,7 @@ describe('RTCCertificate', () => {
     it('should format fingerprints as colon-separated uppercase hex', async () => {
       const cert = await RTCCertificate.generateCertificate();
       const fingerprints = cert.getFingerprints();
-      
+
       fingerprints.forEach(fp => {
         // Check format: XX:XX:XX:...
         const parts = fp.value.split(':');
@@ -107,7 +107,7 @@ describe('RTCCertificate', () => {
   describe('expires', () => {
     it('should return expiration timestamp', async () => {
       const cert = await RTCCertificate.generateCertificate();
-      
+
       assert.ok(typeof cert.expires === 'number');
       assert.ok(cert.expires > Date.now());
     });
@@ -117,7 +117,7 @@ describe('RTCCertificate', () => {
       const cert = await RTCCertificate.generateCertificate({
         expires: customExpires
       });
-      
+
       assert.ok(Math.abs(cert.expires - customExpires) < 1000);
     });
   });
@@ -133,7 +133,7 @@ describe('RTCCertificate', () => {
       const cert = await RTCCertificate.generateCertificate({
         expires: pastTime
       });
-      
+
       assert.strictEqual(cert.isExpired(), true);
     });
   });
@@ -156,16 +156,16 @@ describe('RTCCertificate', () => {
     it('should create certificate from PEM strings', async () => {
       const originalCert = await RTCCertificate.generateCertificate();
       const pem = originalCert.toPEM();
-      
+
       const restoredCert = RTCCertificate.fromPEM(
         pem.pemPrivateKey,
         pem.pemCertificate,
         originalCert.expires
       );
-      
+
       assert.ok(restoredCert instanceof RTCCertificate);
       assert.strictEqual(restoredCert.expires, originalCert.expires);
-      
+
       // Fingerprints should match
       const originalFp = originalCert.getFingerprints();
       const restoredFp = restoredCert.getFingerprints();
@@ -175,12 +175,12 @@ describe('RTCCertificate', () => {
     it('should use default expiration if not provided', async () => {
       const originalCert = await RTCCertificate.generateCertificate();
       const pem = originalCert.toPEM();
-      
+
       const restoredCert = RTCCertificate.fromPEM(
         pem.pemPrivateKey,
         pem.pemCertificate
       );
-      
+
       assert.ok(restoredCert.expires > Date.now());
     });
 
@@ -188,9 +188,9 @@ describe('RTCCertificate', () => {
       assert.throws(() => {
         RTCCertificate.fromPEM('', 'cert');
       }, TypeError);
-      
+
       assert.throws(() => {
-        RTCCertificate.fromPEM(null, 'cert');
+        RTCCertificate.fromPEM(null as any, 'cert');
       }, TypeError);
     });
 
@@ -198,9 +198,9 @@ describe('RTCCertificate', () => {
       assert.throws(() => {
         RTCCertificate.fromPEM('key', '');
       }, TypeError);
-      
+
       assert.throws(() => {
-        RTCCertificate.fromPEM('key', null);
+        RTCCertificate.fromPEM('key', null as any);
       }, TypeError);
     });
   });
@@ -214,7 +214,7 @@ describe('RTCCertificate', () => {
         }),
         true
       );
-      
+
       assert.strictEqual(
         RTCCertificate.isSupportedKeyParams({
           type: 'RSA',
@@ -222,7 +222,7 @@ describe('RTCCertificate', () => {
         }),
         true
       );
-      
+
       assert.strictEqual(
         RTCCertificate.isSupportedKeyParams({
           type: 'RSA',
@@ -240,7 +240,7 @@ describe('RTCCertificate', () => {
         }),
         false
       );
-      
+
       assert.strictEqual(
         RTCCertificate.isSupportedKeyParams({
           type: 'RSA',
@@ -258,7 +258,7 @@ describe('RTCCertificate', () => {
         }),
         true
       );
-      
+
       assert.strictEqual(
         RTCCertificate.isSupportedKeyParams({
           type: 'ECDSA',
@@ -266,7 +266,7 @@ describe('RTCCertificate', () => {
         }),
         true
       );
-      
+
       assert.strictEqual(
         RTCCertificate.isSupportedKeyParams({
           type: 'ECDSA',
@@ -290,17 +290,17 @@ describe('RTCCertificate', () => {
       assert.strictEqual(
         RTCCertificate.isSupportedKeyParams({
           type: 'DSA'
-        }),
+        } as any),
         false
       );
-      
+
       assert.strictEqual(
-        RTCCertificate.isSupportedKeyParams({}),
+        RTCCertificate.isSupportedKeyParams({} as any),
         false
       );
-      
+
       assert.strictEqual(
-        RTCCertificate.isSupportedKeyParams(null),
+        RTCCertificate.isSupportedKeyParams(null as any),
         false
       );
     });
@@ -345,10 +345,10 @@ describe('RTCCertificate', () => {
     it('should generate unique certificates', async () => {
       const cert1 = await RTCCertificate.generateCertificate();
       const cert2 = await RTCCertificate.generateCertificate();
-      
+
       const fp1 = cert1.getFingerprints()[0].value;
       const fp2 = cert2.getFingerprints()[0].value;
-      
+
       assert.notStrictEqual(fp1, fp2);
     });
   });

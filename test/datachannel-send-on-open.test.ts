@@ -1,19 +1,19 @@
 /**
- * @file datachannel-send-on-open.test.js
+ * @file datachannel-send-on-open.test.ts
  * @description Tests the RTCDataChannel transport-sender contract. Channels
  * deliver outbound data through an injected sender (set by the SCTP data
  * channel manager) rather than the legacy network-transport `_send` hook.
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const { RTCDataChannel } = require('../src/index');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import { RTCDataChannel } from '../src/index';
 
 describe('Data Channel sender contract', () => {
   it('invokes the sender with (Buffer, isBinary=false) for strings', () => {
     const channel = new RTCDataChannel('test');
-    let captured = null;
-    channel._setSender((data, isBinary) => { captured = { data, isBinary }; });
+    let captured: any = null;
+    channel._setSender((data: any, isBinary: any) => { captured = { data, isBinary }; });
     channel._setStateToOpen();
 
     channel.send('hello');
@@ -24,8 +24,8 @@ describe('Data Channel sender contract', () => {
 
   it('invokes the sender with isBinary=true for ArrayBuffer/typed arrays', () => {
     const channel = new RTCDataChannel('test');
-    let captured = null;
-    channel._setSender((data, isBinary) => { captured = { data, isBinary }; });
+    let captured: any = null;
+    channel._setSender((data: any, isBinary: any) => { captured = { data, isBinary }; });
     channel._setStateToOpen();
 
     channel.send(Uint8Array.from([1, 2, 3]).buffer);

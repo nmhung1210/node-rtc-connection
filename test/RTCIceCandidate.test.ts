@@ -2,9 +2,9 @@
  * Test suite for RTCIceCandidate
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const RTCIceCandidate = require('../src/ice/RTCIceCandidate');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import RTCIceCandidate from '../src/ice/RTCIceCandidate';
 
 describe('RTCIceCandidate', () => {
   describe('construction', () => {
@@ -13,7 +13,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'candidate:1 1 udp 2130706431 192.168.1.1 54321 typ host',
         sdpMid: 'data'
       });
-      
+
       assert.ok(candidate instanceof RTCIceCandidate);
       assert.strictEqual(candidate.sdpMid, 'data');
     });
@@ -23,7 +23,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'candidate:1 1 udp 2130706431 192.168.1.1 54321 typ host',
         sdpMLineIndex: 0
       });
-      
+
       assert.strictEqual(candidate.sdpMLineIndex, 0);
     });
 
@@ -42,7 +42,7 @@ describe('RTCIceCandidate', () => {
         candidate: '',
         sdpMid: 'data'
       });
-      
+
       assert.strictEqual(candidate.candidate, '');
     });
 
@@ -52,7 +52,7 @@ describe('RTCIceCandidate', () => {
         sdpMid: 'data',
         usernameFragment: 'abc123'
       });
-      
+
       assert.strictEqual(candidate.usernameFragment, 'abc123');
     });
   });
@@ -63,7 +63,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'candidate:842163049 1 udp 2130706431 192.168.1.100 54400 typ host',
         sdpMid: 'data'
       });
-      
+
       assert.strictEqual(candidate.foundation, '842163049');
       assert.strictEqual(candidate.component, '1');
       assert.strictEqual(candidate.protocol, 'udp');
@@ -78,7 +78,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'candidate:842163049 1 udp 1694498815 203.0.113.1 54400 typ srflx raddr 192.168.1.100 rport 54321',
         sdpMid: 'data'
       });
-      
+
       assert.strictEqual(candidate.type, 'srflx');
       assert.strictEqual(candidate.address, '203.0.113.1');
       assert.strictEqual(candidate.port, 54400);
@@ -91,7 +91,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'candidate:842163049 1 udp 16777215 198.51.100.1 54321 typ relay raddr 192.168.1.100 rport 54400',
         sdpMid: 'data'
       });
-      
+
       assert.strictEqual(candidate.type, 'relay');
       assert.strictEqual(candidate.address, '198.51.100.1');
       assert.strictEqual(candidate.priority, 16777215);
@@ -102,7 +102,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'candidate:842163049 1 tcp 2130706175 192.168.1.100 9 typ host tcptype active',
         sdpMid: 'data'
       });
-      
+
       assert.strictEqual(candidate.protocol, 'tcp');
       assert.strictEqual(candidate.tcpType, 'active');
     });
@@ -112,7 +112,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'invalid candidate string',
         sdpMid: 'data'
       });
-      
+
       assert.strictEqual(candidate.foundation, null);
       assert.strictEqual(candidate.type, null);
     });
@@ -122,7 +122,7 @@ describe('RTCIceCandidate', () => {
         candidate: '',
         sdpMid: 'data'
       });
-      
+
       assert.strictEqual(candidate.foundation, null);
       assert.strictEqual(candidate.component, null);
     });
@@ -197,9 +197,9 @@ describe('RTCIceCandidate', () => {
         sdpMLineIndex: 0,
         usernameFragment: 'frag123'
       });
-      
+
       const json = candidate.toJSON();
-      
+
       assert.strictEqual(json.candidate, 'candidate:1 1 udp 2130706431 192.168.1.1 54321 typ host');
       assert.strictEqual(json.sdpMid, 'data');
       assert.strictEqual(json.sdpMLineIndex, 0);
@@ -211,7 +211,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'candidate:1 1 udp 2130706431 192.168.1.1 54321 typ host',
         sdpMid: 'data'
       });
-      
+
       const json = candidate.toJSON();
       assert.ok(!('usernameFragment' in json));
     });
@@ -224,7 +224,7 @@ describe('RTCIceCandidate', () => {
         'data',
         0
       );
-      
+
       assert.ok(candidate instanceof RTCIceCandidate);
       assert.strictEqual(candidate.sdpMid, 'data');
       assert.strictEqual(candidate.sdpMLineIndex, 0);
@@ -238,8 +238,8 @@ describe('RTCIceCandidate', () => {
     it('should reject invalid candidate string', () => {
       assert.strictEqual(RTCIceCandidate.isValid('invalid'), false);
       assert.strictEqual(RTCIceCandidate.isValid(''), false);
-      assert.strictEqual(RTCIceCandidate.isValid(null), false);
-      assert.strictEqual(RTCIceCandidate.isValid(undefined), false);
+      assert.strictEqual(RTCIceCandidate.isValid(null as any), false);
+      assert.strictEqual(RTCIceCandidate.isValid(undefined as any), false);
     });
 
     it('should reject candidate without enough fields', () => {
@@ -253,7 +253,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'candidate:1 1 udp 2130706175 2001:0db8:85a3::8a2e:0370:7334 54321 typ host',
         sdpMid: 'data'
       });
-      
+
       assert.strictEqual(candidate.address, '2001:0db8:85a3::8a2e:0370:7334');
       assert.strictEqual(candidate.type, 'host');
     });
@@ -263,7 +263,7 @@ describe('RTCIceCandidate', () => {
         candidate: 'candidate:3 1 udp 16777215 198.51.100.1 54321 typ relay raddr 192.168.1.100 rport 54400',
         sdpMid: 'data'
       });
-      
+
       assert.strictEqual(candidate.type, 'relay');
       assert.strictEqual(candidate.address, '198.51.100.1');
       assert.strictEqual(candidate.relatedAddress, '192.168.1.100');

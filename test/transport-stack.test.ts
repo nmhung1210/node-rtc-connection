@@ -1,14 +1,14 @@
 /**
- * @file transport-stack.test.js
+ * @file transport-stack.test.ts
  * @description Full ICE+DTLS+SCTP+DCEP pipeline over real UDP sockets, between
  * two TransportStack instances. This exercises the real WebRTC data path.
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const { TransportStack } = require('../src/transport-stack');
-const { RTCDataChannel } = require('../src/datachannel/RTCDataChannel');
-const x509 = require('../src/crypto/x509');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import { TransportStack } from '../src/transport-stack';
+import { RTCDataChannel } from '../src/datachannel/RTCDataChannel';
+import * as x509 from '../src/crypto/x509';
 
 async function connectPair() {
   const certA = x509.generateSelfSigned({ commonName: 'A' });
@@ -43,8 +43,8 @@ describe('Full transport stack over UDP', () => {
   it('establishes ICE+DTLS+SCTP and exchanges string + binary over a data channel', async () => {
     const { A, B } = await connectPair();
     try {
-      const remoteReady = new Promise((resolve) => {
-        B.on('datachannel-request', (info) => {
+      const remoteReady = new Promise<any>((resolve) => {
+        B.on('datachannel-request', (info: any) => {
           const ch = new RTCDataChannel(info.label, { ordered: info.ordered });
           ch.binaryType = 'arraybuffer';
           B.acceptChannel(ch, info);
@@ -59,15 +59,15 @@ describe('Full transport stack over UDP', () => {
       const remote = await remoteReady;
 
       // string
-      const sGot = new Promise((r) => remote.on('message', (e) => r(e.data)));
+      const sGot = new Promise((r) => remote.on('message', (e: any) => r(e.data)));
       local.send('hello-real-webrtc');
       assert.strictEqual(await sGot, 'hello-real-webrtc');
 
       // binary
       const payload = Uint8Array.from([0, 255, 1, 254, 128, 7]);
-      const bGot = new Promise((r) => remote.once('message', (e) => r(e.data)));
+      const bGot = new Promise((r) => remote.once('message', (e: any) => r(e.data)));
       // re-subscribe (the earlier handler already consumed one)
-      const bGot2 = new Promise((r) => remote.on('message', (e) => r(e.data)));
+      const bGot2 = new Promise<any>((r) => remote.on('message', (e: any) => r(e.data)));
       local.send(payload.buffer);
       const recv = await bGot2;
       assert.ok(recv instanceof ArrayBuffer);

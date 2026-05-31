@@ -1,32 +1,33 @@
 /**
- * Test runner: discovers all *.test.js suites and runs them. Before running, it
+ * Test runner: discovers all *.test.ts suites and runs them. Before running, it
  * starts a local coturn TURN server (via Docker) so the relay test
- * (turn-e2e.test.js) actually exercises a relay, then tears it down afterward.
+ * (turn-e2e.test.ts) actually exercises a relay, then tears it down afterward.
  *
  * coturn is skipped when SKIP_INTEGRATION=1, when Docker is unavailable, or when
  * an external TURN server is already configured via TURN_HOST. In those cases
  * the relay test self-skips.
  */
 
-const { run } = require('node:test');
-const { spec } = require('node:test/reporters');
-const { spawnSync } = require('node:child_process');
-const path = require('path');
-const fs = require('fs');
+import { run } from 'node:test';
+import { spec } from 'node:test/reporters';
+import { spawnSync } from 'node:child_process';
+import * as path from 'path';
+import * as fs from 'fs';
+import STUNClient from '../src/stun/stun-client';
 
 const COTURN_NAME = 'nodertc-test-coturn';
 const COTURN_PORT = 3478;
 
 // Get all test files (recursively, so test/integration and test/browser are
 // included alongside the top-level suites).
-function collectTests(dir) {
-  const out = [];
+function collectTests(dir: string): string[] {
+  const out: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === 'helpers' || entry.name === 'browser') continue; // support code, not suites
       out.push(...collectTests(full));
-    } else if (entry.name.endsWith('.test.js')) {
+    } else if (entry.name.endsWith('.test.ts')) {
       out.push(full);
     }
   }
@@ -70,7 +71,6 @@ function stopCoturn() {
 
 /** Wait until coturn answers a TURN allocation (or time out). */
 async function waitForCoturn(timeoutMs = 8000) {
-  const STUNClient = require('../src/stun/stun-client');
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const ok = await new Promise((resolve) => {

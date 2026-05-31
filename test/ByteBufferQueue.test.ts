@@ -2,12 +2,12 @@
  * Test suite for ByteBufferQueue
  */
 
-const { describe, it, beforeEach } = require('node:test');
-const assert = require('node:assert');
-const ByteBufferQueue = require('../src/foundation/ByteBufferQueue');
+import { describe, it, beforeEach } from 'node:test';
+import assert from 'node:assert';
+import ByteBufferQueue from '../src/foundation/ByteBufferQueue';
 
 describe('ByteBufferQueue', () => {
-  let queue;
+  let queue: ByteBufferQueue;
 
   beforeEach(() => {
     queue = new ByteBufferQueue();
@@ -42,8 +42,8 @@ describe('ByteBufferQueue', () => {
     });
 
     it('should throw if argument is not a Buffer', () => {
-      assert.throws(() => queue.append('not a buffer'), TypeError);
-      assert.throws(() => queue.append([1, 2, 3]), TypeError);
+      assert.throws(() => queue.append('not a buffer' as any), TypeError);
+      assert.throws(() => queue.append([1, 2, 3] as any), TypeError);
     });
   });
 
@@ -52,7 +52,7 @@ describe('ByteBufferQueue', () => {
       queue.append(Buffer.from([1, 2, 3, 4, 5]));
       const out = Buffer.alloc(3);
       const bytesRead = queue.readInto(out);
-      
+
       assert.strictEqual(bytesRead, 3);
       assert.deepStrictEqual(out, Buffer.from([1, 2, 3]));
       assert.strictEqual(queue.size, 2);
@@ -62,10 +62,10 @@ describe('ByteBufferQueue', () => {
       queue.append(Buffer.from([1, 2]));
       queue.append(Buffer.from([3, 4, 5]));
       queue.append(Buffer.from([6, 7, 8]));
-      
+
       const out = Buffer.alloc(5);
       const bytesRead = queue.readInto(out);
-      
+
       assert.strictEqual(bytesRead, 5);
       assert.deepStrictEqual(out, Buffer.from([1, 2, 3, 4, 5]));
       assert.strictEqual(queue.size, 3);
@@ -73,17 +73,17 @@ describe('ByteBufferQueue', () => {
 
     it('should handle partial buffer consumption', () => {
       queue.append(Buffer.from([1, 2, 3, 4, 5]));
-      
+
       let out = Buffer.alloc(2);
       queue.readInto(out);
       assert.deepStrictEqual(out, Buffer.from([1, 2]));
       assert.strictEqual(queue.size, 3);
-      
+
       out = Buffer.alloc(2);
       queue.readInto(out);
       assert.deepStrictEqual(out, Buffer.from([3, 4]));
       assert.strictEqual(queue.size, 1);
-      
+
       out = Buffer.alloc(2);
       const bytesRead = queue.readInto(out);
       assert.strictEqual(bytesRead, 1);
@@ -101,7 +101,7 @@ describe('ByteBufferQueue', () => {
       queue.append(Buffer.from([1, 2, 3]));
       const out = Buffer.alloc(10);
       const bytesRead = queue.readInto(out);
-      
+
       assert.strictEqual(bytesRead, 3);
       assert.strictEqual(out[0], 1);
       assert.strictEqual(out[1], 2);
@@ -109,7 +109,7 @@ describe('ByteBufferQueue', () => {
     });
 
     it('should throw if argument is not a Buffer', () => {
-      assert.throws(() => queue.readInto('not a buffer'), TypeError);
+      assert.throws(() => queue.readInto('not a buffer' as any), TypeError);
     });
   });
 
@@ -117,7 +117,7 @@ describe('ByteBufferQueue', () => {
     it('should read and return exact number of bytes', () => {
       queue.append(Buffer.from([1, 2, 3, 4, 5]));
       const data = queue.read(3);
-      
+
       assert.deepStrictEqual(data, Buffer.from([1, 2, 3]));
       assert.strictEqual(queue.size, 2);
     });
@@ -131,7 +131,7 @@ describe('ByteBufferQueue', () => {
       queue.append(Buffer.from([1, 2]));
       queue.append(Buffer.from([3, 4]));
       queue.append(Buffer.from([5, 6]));
-      
+
       const data = queue.read(4);
       assert.deepStrictEqual(data, Buffer.from([1, 2, 3, 4]));
       assert.strictEqual(queue.size, 2);
@@ -141,11 +141,11 @@ describe('ByteBufferQueue', () => {
   describe('peek', () => {
     it('should peek without consuming data', () => {
       queue.append(Buffer.from([1, 2, 3, 4, 5]));
-      
+
       const peeked = queue.peek(3);
       assert.deepStrictEqual(peeked, Buffer.from([1, 2, 3]));
       assert.strictEqual(queue.size, 5); // Size unchanged
-      
+
       const read = queue.read(3);
       assert.deepStrictEqual(read, Buffer.from([1, 2, 3]));
     });
@@ -153,7 +153,7 @@ describe('ByteBufferQueue', () => {
     it('should peek all data by default', () => {
       queue.append(Buffer.from([1, 2, 3]));
       queue.append(Buffer.from([4, 5]));
-      
+
       const peeked = queue.peek();
       assert.deepStrictEqual(peeked, Buffer.from([1, 2, 3, 4, 5]));
       assert.strictEqual(queue.size, 5);
@@ -163,7 +163,7 @@ describe('ByteBufferQueue', () => {
       queue.append(Buffer.from([1, 2]));
       queue.append(Buffer.from([3, 4]));
       queue.append(Buffer.from([5, 6]));
-      
+
       const peeked = queue.peek(4);
       assert.deepStrictEqual(peeked, Buffer.from([1, 2, 3, 4]));
       assert.strictEqual(queue.size, 6);
@@ -180,9 +180,9 @@ describe('ByteBufferQueue', () => {
       queue.append(Buffer.from([1, 2, 3]));
       queue.append(Buffer.from([4, 5, 6]));
       assert.strictEqual(queue.size, 6);
-      
+
       queue.clear();
-      
+
       assert.strictEqual(queue.size, 0);
       assert.strictEqual(queue.empty, true);
     });
@@ -191,9 +191,9 @@ describe('ByteBufferQueue', () => {
       queue.append(Buffer.from([1, 2, 3, 4, 5]));
       queue.read(2);
       assert.strictEqual(queue.size, 3);
-      
+
       queue.clear();
-      
+
       assert.strictEqual(queue.size, 0);
       assert.strictEqual(queue.empty, true);
     });
@@ -203,27 +203,27 @@ describe('ByteBufferQueue', () => {
     it('should handle interleaved append and read operations', () => {
       queue.append(Buffer.from([1, 2]));
       assert.strictEqual(queue.read(1)[0], 1);
-      
+
       queue.append(Buffer.from([3, 4, 5]));
       assert.deepStrictEqual(queue.read(3), Buffer.from([2, 3, 4]));
-      
+
       queue.append(Buffer.from([6]));
       assert.deepStrictEqual(queue.read(2), Buffer.from([5, 6]));
-      
+
       assert.strictEqual(queue.empty, true);
     });
 
     it('should handle large data sets', () => {
       const chunkSize = 1000;
       const numChunks = 100;
-      
+
       for (let i = 0; i < numChunks; i++) {
         const chunk = Buffer.alloc(chunkSize, i % 256);
         queue.append(chunk);
       }
-      
+
       assert.strictEqual(queue.size, chunkSize * numChunks);
-      
+
       const allData = queue.read(chunkSize * numChunks);
       assert.strictEqual(allData.length, chunkSize * numChunks);
       assert.strictEqual(queue.empty, true);

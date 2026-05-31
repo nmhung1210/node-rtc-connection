@@ -1,5 +1,5 @@
 /**
- * @file node-to-node.js
+ * @file node-to-node.ts
  * @description Two NodeRTC peers in one process establish a real WebRTC data
  * channel (ICE + DTLS + SCTP over UDP) and exchange string and binary messages.
  *
@@ -7,20 +7,20 @@
  * two peers exchange offer/answer and ICE candidates directly via function
  * calls (standing in for a signaling channel).
  *
- *   node examples/node-to-node.js
+ *   node examples/node-to-node.ts
  */
 
 'use strict';
 
-const { RTCPeerConnection } = require('../src/index.js');
+import { RTCPeerConnection } from '../src/index';
 
 async function main() {
   const offerer = new RTCPeerConnection();
   const answerer = new RTCPeerConnection();
 
   // Trickle ICE candidates between the peers (here, a direct call).
-  offerer.on('icecandidate', (e) => { if (e.candidate) answerer.addIceCandidate(e.candidate); });
-  answerer.on('icecandidate', (e) => { if (e.candidate) offerer.addIceCandidate(e.candidate); });
+  offerer.on('icecandidate', (e: any) => { if (e.candidate) answerer.addIceCandidate(e.candidate); });
+  answerer.on('icecandidate', (e: any) => { if (e.candidate) offerer.addIceCandidate(e.candidate); });
 
   offerer.on('connectionstatechange', () =>
     console.log(`[offerer] connection: ${offerer.connectionState}`));
@@ -33,16 +33,16 @@ async function main() {
     channel.send('hello over real WebRTC');
     channel.send(Uint8Array.from([1, 2, 3, 4, 5]).buffer); // binary
   });
-  channel.on('message', (e) => {
+  channel.on('message', (e: any) => {
     const text = typeof e.data === 'string' ? e.data : `<binary ${Buffer.from(e.data).length} bytes>`;
     console.log(`[offerer] received: ${text}`);
   });
 
   // Answerer receives the channel.
-  answerer.on('datachannel', ({ channel: ch }) => {
+  answerer.on('datachannel', ({ channel: ch }: any) => {
     ch.binaryType = 'arraybuffer';
     console.log(`[answerer] got data channel: ${ch.label}`);
-    ch.on('message', (e) => {
+    ch.on('message', (e: any) => {
       if (typeof e.data === 'string') {
         console.log(`[answerer] received string: ${e.data}`);
         ch.send(`reply: ${e.data}`);

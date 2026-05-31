@@ -1,19 +1,19 @@
 /**
- * @file datachannel-stack.test.js
+ * @file datachannel-stack.test.ts
  * @description SCTP + DCEP manager + RTCDataChannel end-to-end over a pipe.
  * Verifies channel open via DCEP and correct string/binary round-tripping
  * (the binary path was previously corrupted by JSON serialization).
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const { SctpAssociation } = require('../src/sctp/association');
-const { DataChannelManager } = require('../src/sctp/datachannel-manager');
-const { RTCDataChannel } = require('../src/datachannel/RTCDataChannel');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import { SctpAssociation } from '../src/sctp/association';
+import { DataChannelManager } from '../src/sctp/datachannel-manager';
+import { RTCDataChannel } from '../src/datachannel/RTCDataChannel';
 
-function wire(a, b) {
-  a.on('output', (pkt) => { const c = Buffer.from(pkt); setImmediate(() => b.receivePacket(c)); });
-  b.on('output', (pkt) => { const c = Buffer.from(pkt); setImmediate(() => a.receivePacket(c)); });
+function wire(a: any, b: any) {
+  a.on('output', (pkt: any) => { const c = Buffer.from(pkt); setImmediate(() => b.receivePacket(c)); });
+  b.on('output', (pkt: any) => { const c = Buffer.from(pkt); setImmediate(() => a.receivePacket(c)); });
 }
 
 async function setup() {
@@ -39,8 +39,8 @@ describe('Data channel stack', () => {
   it('opens a channel via DCEP and fires open on both ends', async () => {
     const { clientMgr, serverMgr } = await setup();
 
-    const serverChannelP = new Promise((resolve) => {
-      serverMgr.on('open-request', (info) => {
+    const serverChannelP = new Promise<any>((resolve) => {
+      serverMgr.on('open-request', (info: any) => {
         const ch = new RTCDataChannel(info.label, { ordered: info.ordered });
         serverMgr.acceptChannel(ch, info);
         resolve(ch);
@@ -60,8 +60,8 @@ describe('Data channel stack', () => {
 
   it('round-trips string messages', async () => {
     const { clientMgr, serverMgr } = await setup();
-    const remoteP = new Promise((resolve) => {
-      serverMgr.on('open-request', (info) => {
+    const remoteP = new Promise<any>((resolve) => {
+      serverMgr.on('open-request', (info: any) => {
         const ch = new RTCDataChannel(info.label, { ordered: info.ordered });
         serverMgr.acceptChannel(ch, info);
         resolve(ch);
@@ -73,7 +73,7 @@ describe('Data channel stack', () => {
     await localOpen;
     const remote = await remoteP;
 
-    const got = new Promise((r) => remote.on('message', (e) => r(e.data)));
+    const got = new Promise((r) => remote.on('message', (e: any) => r(e.data)));
     local.send('hello world');
     const data = await got;
     assert.strictEqual(typeof data, 'string');
@@ -82,8 +82,8 @@ describe('Data channel stack', () => {
 
   it('round-trips binary messages without corruption', async () => {
     const { clientMgr, serverMgr } = await setup();
-    const remoteP = new Promise((resolve) => {
-      serverMgr.on('open-request', (info) => {
+    const remoteP = new Promise<any>((resolve) => {
+      serverMgr.on('open-request', (info: any) => {
         const ch = new RTCDataChannel(info.label, { ordered: info.ordered });
         ch.binaryType = 'arraybuffer';
         serverMgr.acceptChannel(ch, info);
@@ -97,7 +97,7 @@ describe('Data channel stack', () => {
     const remote = await remoteP;
 
     const original = Uint8Array.from([0, 1, 2, 254, 255, 128, 42]);
-    const got = new Promise((r) => remote.on('message', (e) => r(e.data)));
+    const got = new Promise<any>((r) => remote.on('message', (e: any) => r(e.data)));
     local.send(original.buffer);
 
     const data = await got;

@@ -1,5 +1,5 @@
 /**
- * @file turn-e2e.test.js
+ * @file turn-e2e.test.ts
  * @description End-to-end WebRTC over a TURN relay. Two peers are forced to use
  * only relay candidates (iceTransportPolicy: 'relay') so that ICE, DTLS, SCTP
  * and the data channel all travel through the TURN server. Proves the relay
@@ -16,13 +16,14 @@
  * Skips gracefully when no TURN server answers or SKIP_INTEGRATION=1.
  */
 
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert');
-const dgram = require('dgram');
-const { TransportStack } = require('../src/transport-stack');
-const { IceAgent } = require('../src/ice/ice-agent');
-const { RTCDataChannel } = require('../src/datachannel/RTCDataChannel');
-const x509 = require('../src/crypto/x509');
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
+import * as dgram from 'dgram';
+import { TransportStack } from '../src/transport-stack';
+import { IceAgent } from '../src/ice/ice-agent';
+import { RTCDataChannel } from '../src/datachannel/RTCDataChannel';
+import * as x509 from '../src/crypto/x509';
+import STUNClient from '../src/stun/stun-client';
 
 const TURN_HOST = process.env.TURN_HOST || '127.0.0.1';
 const TURN_PORT = parseInt(process.env.TURN_PORT || '3478', 10);
@@ -35,17 +36,16 @@ const ICE_SERVERS = [{ urls: `turn:${TURN_HOST}:${TURN_PORT}`, username: TURN_US
 /** Probe: can we allocate a relay against the configured TURN server? */
 function turnReachable(timeoutMs = 2500) {
   return new Promise((resolve) => {
-    const STUNClient = require('../src/stun/stun-client');
     const c = new STUNClient({ server: TURN_HOST, port: TURN_PORT, username: TURN_USER, credential: TURN_PASS });
     let done = false;
-    const finish = (ok) => { if (done) return; done = true; try { c.close(); } catch (_) {} resolve(ok); };
+    const finish = (ok: boolean) => { if (done) return; done = true; try { c.close(); } catch (_) {} resolve(ok); };
     const timer = setTimeout(() => finish(false), timeoutMs);
     if (timer.unref) timer.unref();
     c.allocateRelay(300).then(() => finish(true)).catch(() => finish(false));
   });
 }
 
-function makeStack(role) {
+function makeStack(role: string) {
   const cert = x509.generateSelfSigned({ commonName: role });
   return new TransportStack({
     iceRole: role === 'A' ? 'controlling' : 'controlled',
@@ -62,7 +62,7 @@ describe('TURN relay', () => {
   let available = false;
   before(async () => {
     if (SKIP) return;
-    available = await turnReachable();
+    available = await turnReachable() as boolean;
   });
 
   it('gathers a relay candidate from the TURN server', async (t) => {
@@ -70,7 +70,7 @@ describe('TURN relay', () => {
     const agent = new IceAgent({ role: 'controlling', localUfrag: 'aaaa', localPwd: 'pwd-aaaa-pwd-aaaa-pwd-a' });
     try {
       await agent.gather({ iceServers: ICE_SERVERS });
-      const relay = agent.getLocalCandidates().find((c) => c.type === 'relay');
+      const relay = agent.getLocalCandidates().find((c: any) => c.type === 'relay');
       assert.ok(relay, 'expected a relay candidate');
       assert.match(relay.sdp, /typ relay/);
     } finally {
@@ -84,26 +84,26 @@ describe('TURN relay', () => {
     const A = makeStack('A');
     const B = makeStack('B');
     try {
-      const result = await new Promise((resolve, reject) => {
+      const result = await new Promise<any>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('relay connection timeout')), 20000);
 
-        B.on('datachannel-request', (info) => {
+        B.on('datachannel-request', (info: any) => {
           const ch = new RTCDataChannel(info.label, { ordered: info.ordered });
           B.acceptChannel(ch, info);
-          ch.on('message', (e) => ch.send(`echo:${e.data}`));
+          ch.on('message', (e: any) => ch.send(`echo:${e.data}`));
         });
 
         A.on('ready', () => {
           const ch = new RTCDataChannel('chat', { ordered: true });
           ch.on('open', () => ch.send('over-turn'));
-          ch.on('message', (e) => {
+          ch.on('message', (e: any) => {
             clearTimeout(timer);
             resolve({ reply: e.data, type: A.ice.getSelectedCandidateType() });
           });
           A.openChannel(ch, { ordered: true });
         });
-        A.on('error', (e) => { clearTimeout(timer); reject(e); });
-        B.on('error', (e) => { clearTimeout(timer); reject(e); });
+        A.on('error', (e: any) => { clearTimeout(timer); reject(e); });
+        B.on('error', (e: any) => { clearTimeout(timer); reject(e); });
 
         (async () => {
           await A.gather({ iceServers: ICE_SERVERS, iceTransportPolicy: 'relay' });

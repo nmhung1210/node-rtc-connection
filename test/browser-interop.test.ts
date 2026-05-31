@@ -1,5 +1,5 @@
 /**
- * @file browser-interop.test.js
+ * @file browser-interop.test.ts
  * @description End-to-end interop: our Node RTCPeerConnection exchanges data
  * channel messages with a real browser (Chromium via Playwright) over actual
  * UDP, exercising ICE, DTLS, SCTP and DCEP together. Data channels always run
@@ -17,9 +17,10 @@
  * relay scenario additionally skips when no TURN server answers.
  */
 
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert');
-const { startServer, buildPayloads } = require('./browser/interop-server');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert';
+import { startServer, buildPayloads } from './browser/interop-server';
+import STUNClient from '../src/stun/stun-client';
 
 const SKIP = process.env.SKIP_INTEGRATION === '1';
 
@@ -42,10 +43,9 @@ function loadPlaywright() {
 /** Can we allocate a relay against the configured TURN server? */
 function turnReachable(timeoutMs = 2500) {
   return new Promise((resolve) => {
-    const STUNClient = require('../src/stun/stun-client');
     const c = new STUNClient({ server: TURN_HOST, port: TURN_PORT, username: TURN_USER, credential: TURN_PASS });
     let done = false;
-    const finish = (ok) => { if (done) return; done = true; try { c.close(); } catch (_) {} resolve(ok); };
+    const finish = (ok: boolean) => { if (done) return; done = true; try { c.close(); } catch (_) {} resolve(ok); };
     const t = setTimeout(() => finish(false), timeoutMs);
     if (t.unref) t.unref();
     c.allocateRelay(300).then(() => finish(true)).catch(() => finish(false));
@@ -57,13 +57,13 @@ const chromium = SKIP ? null : loadPlaywright();
 /**
  * Drive one scenario end-to-end and return the collected harness events.
  */
-async function runScenario(browser, { nodeConfig, browserConfig }) {
-  const results = [];
+async function runScenario(browser: any, { nodeConfig, browserConfig }: any) {
+  const results: any[] = [];
   const { server, pc, port } = await startServer({
-    onResult: (r) => results.push(r),
+    onResult: (r: any) => results.push(r),
     nodeConfig,
     browserConfig,
-  });
+  }) as any;
 
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -87,7 +87,7 @@ async function runScenario(browser, { nodeConfig, browserConfig }) {
 }
 
 /** Assert every payload echoed back correctly. */
-function assertAllEchoed(results) {
+function assertAllEchoed(results: any[]) {
   const browserError = results.find((r) => r.event === 'browser-error');
   assert.ok(!browserError, `browser error: ${browserError && browserError.error}`);
   assert.ok(results.some((r) => r.event === 'channel-open'), 'data channel never opened');
@@ -103,12 +103,12 @@ function assertAllEchoed(results) {
 }
 
 describe('Browser interop (Playwright + Chromium)', { skip: SKIP || !chromium }, () => {
-  let browser;
+  let browser: any;
   let relayOk = false;
 
   before(async () => {
     browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-    relayOk = await turnReachable();
+    relayOk = await turnReachable() as boolean;
   });
 
   after(async () => {

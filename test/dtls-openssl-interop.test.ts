@@ -1,5 +1,5 @@
 /**
- * @file dtls-openssl-interop.test.js
+ * @file dtls-openssl-interop.test.ts
  * @description Interop tests for the pure-Node DTLS 1.2 stack against OpenSSL.
  *
  * OpenSSL shares its DTLS/TLS lineage with the BoringSSL/NSS stacks browsers
@@ -10,15 +10,15 @@
  * Skipped when openssl is unavailable or SKIP_INTEGRATION is set.
  */
 
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert');
-const { spawn, spawnSync } = require('child_process');
-const dgram = require('dgram');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { DtlsConnection, ROLE } = require('../src/dtls/connection');
-const x509 = require('../src/crypto/x509');
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
+import { spawn, spawnSync } from 'node:child_process';
+import * as dgram from 'dgram';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { DtlsConnection, ROLE } from '../src/dtls/connection';
+import * as x509 from '../src/crypto/x509';
 
 const SKIP = process.env.SKIP_INTEGRATION === '1';
 
@@ -31,7 +31,7 @@ function hasOpenSSLDtls() {
   }
 }
 
-function writePem(dir, prefix, certInfo) {
+function writePem(dir: string, prefix: string, certInfo: any) {
   const keyPath = path.join(dir, `${prefix}-key.pem`);
   const certPath = path.join(dir, `${prefix}-cert.pem`);
   fs.writeFileSync(keyPath, certInfo.privateKey.export({ type: 'pkcs8', format: 'pem' }));
@@ -44,7 +44,7 @@ function writePem(dir, prefix, certInfo) {
 }
 
 describe('DTLS interop with OpenSSL', { skip: SKIP || !hasOpenSSLDtls() }, () => {
-  let tmpDir;
+  let tmpDir: string;
   before(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dtls-interop-'));
   });
@@ -66,7 +66,7 @@ describe('DTLS interop with OpenSSL', { skip: SKIP || !hasOpenSSLDtls() }, () =>
     );
 
     try {
-      const result = await new Promise((resolve, reject) => {
+      const result = await new Promise<string>((resolve, reject) => {
         const clientCert = x509.generateSelfSigned({ commonName: 'node-client' });
         const timer = setTimeout(() => reject(new Error('handshake timeout')), 8000);
 
@@ -76,16 +76,16 @@ describe('DTLS interop with OpenSSL', { skip: SKIP || !hasOpenSSLDtls() }, () =>
             role: ROLE.CLIENT,
             certDer: clientCert.certDer,
             privateKey: clientCert.privateKey,
-            output: (dg) => sock.send(dg, PORT, '127.0.0.1'),
+            output: (dg: Buffer) => sock.send(dg, PORT, '127.0.0.1'),
           });
           sock.on('message', (m) => conn.handlePacket(m));
           conn.on('connect', () => conn.send(Buffer.from('ping-from-node\n')));
-          conn.on('data', (d) => {
+          conn.on('data', (d: Buffer) => {
             clearTimeout(timer);
             sock.close();
             resolve(d.toString());
           });
-          conn.on('error', (e) => { clearTimeout(timer); reject(e); });
+          conn.on('error', (e: any) => { clearTimeout(timer); reject(e); });
           conn.start();
           setTimeout(() => { try { ossl.stdin.write('pong-from-openssl\n'); } catch (_) {} }, 1000);
         }, 500);
@@ -102,26 +102,26 @@ describe('DTLS interop with OpenSSL', { skip: SKIP || !hasOpenSSLDtls() }, () =>
     const cli = x509.generateSelfSigned({ commonName: 'ossl-client' });
     const { keyPath, certPath } = writePem(tmpDir, 'cli', cli);
 
-    let ossl;
+    let ossl: any;
     const sock = dgram.createSocket('udp4');
     try {
-      const received = await new Promise((resolve, reject) => {
+      const received = await new Promise<string>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error('handshake timeout')), 8000);
-        let conn = null;
+        let conn: any = null;
         sock.on('message', (msg, rinfo) => {
           if (!conn) {
             conn = new DtlsConnection({
               role: ROLE.SERVER,
               certDer: srvCert.certDer,
               privateKey: srvCert.privateKey,
-              output: (dg) => sock.send(dg, rinfo.port, rinfo.address),
+              output: (dg: Buffer) => sock.send(dg, rinfo.port, rinfo.address),
             });
-            conn.on('data', (d) => {
+            conn.on('data', (d: Buffer) => {
               clearTimeout(timer);
               conn.send(Buffer.from('reply-from-node\n'));
               resolve(d.toString());
             });
-            conn.on('error', (e) => { clearTimeout(timer); reject(e); });
+            conn.on('error', (e: any) => { clearTimeout(timer); reject(e); });
             conn.start();
           }
           conn.handlePacket(msg);

@@ -1,5 +1,5 @@
 /**
- * @file browser-server.js
+ * @file browser-server.ts
  * @description Real WebRTC between a Node.js server and a browser client.
  *
  * The Node process runs this library's RTCPeerConnection as the OFFERER and
@@ -11,7 +11,7 @@
  * are folded into the SDP once gathering completes (non-trickle), which keeps
  * the signaling trivial. A production app would use WebSockets and trickle ICE.
  *
- *   node examples/browser-server.js
+ *   node examples/browser-server.ts
  *   # then open http://localhost:3000 in a browser
  *
  * Each browser tab gets its own independent Node-side peer connection.
@@ -19,10 +19,13 @@
 
 'use strict';
 
-const http = require('http');
-const path = require('path');
-const fs = require('fs');
-const { RTCPeerConnection } = require('../src/index.js');
+import * as http from 'http';
+import * as path from 'path';
+import * as fs from 'fs';
+import { fileURLToPath } from 'url';
+import { RTCPeerConnection } from '../src/index';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const CLIENT_HTML = fs.readFileSync(path.join(__dirname, 'browser-client.html'), 'utf8');
@@ -32,7 +35,7 @@ const CLIENT_HTML = fs.readFileSync(path.join(__dirname, 'browser-client.html'),
 const sessions = new Map();
 
 /** Fold this peer's gathered ICE candidates into its local SDP. */
-function localDescriptionWithCandidates(pc, candidates) {
+function localDescriptionWithCandidates(pc: any, candidates: any[]) {
   const sdp = pc.localDescription.sdp.replace(/\r\n$/, '');
   const lines = sdp.split('\r\n');
   for (const c of candidates) {
@@ -46,9 +49,9 @@ function localDescriptionWithCandidates(pc, candidates) {
 /** Create a Node-side peer, its data channel, and a ready-to-send offer. */
 async function createSession() {
   const pc = new RTCPeerConnection();
-  const candidates = [];
+  const candidates: any[] = [];
 
-  const session = { pc, channel: null, offer: null, connected: false };
+  const session = { pc, channel: null as any, offer: null as any, connected: false };
 
   // We are the offerer: create the data channel.
   const channel = pc.createDataChannel('chat', { ordered: true });
@@ -58,7 +61,7 @@ async function createSession() {
     console.log('[node] data channel open — sending greeting');
     channel.send('👋 Hello from the Node.js server!');
   });
-  channel.on('message', (e) => {
+  channel.on('message', (e: any) => {
     const text = typeof e.data === 'string' ? e.data : `<binary ${Buffer.from(e.data).length} bytes>`;
     console.log(`[node] received: ${text}`);
     // Echo with a server tag so the browser sees a round-trip.
@@ -72,8 +75,8 @@ async function createSession() {
   });
 
   // Gather all candidates, then build the offer SDP that embeds them.
-  const gathered = new Promise((resolve) => {
-    pc.on('icecandidate', (e) => {
+  const gathered = new Promise<void>((resolve) => {
+    pc.on('icecandidate', (e: any) => {
       if (e.candidate) candidates.push(e.candidate);
       else resolve();
     });
@@ -87,7 +90,7 @@ async function createSession() {
   return session;
 }
 
-function sendJson(res, code, obj) {
+function sendJson(res: any, code: number, obj: any) {
   res.writeHead(code, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*',
@@ -95,16 +98,16 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
-function readBody(req) {
-  return new Promise((resolve) => {
+function readBody(req: any) {
+  return new Promise<string>((resolve) => {
     let body = '';
-    req.on('data', (c) => (body += c));
+    req.on('data', (c: any) => (body += c));
     req.on('end', () => resolve(body));
   });
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const url = new URL(req.url!, `http://${req.headers.host}`);
 
   try {
     if (url.pathname === '/') {
@@ -136,7 +139,7 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(404);
     res.end('Not found');
-  } catch (err) {
+  } catch (err: any) {
     console.error('[node] error handling request:', err);
     sendJson(res, 500, { error: err.message });
   }

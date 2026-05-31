@@ -1,13 +1,13 @@
 /**
- * @file sdp.test.js
+ * @file sdp.test.ts
  * @description Unit tests for RTCSessionDescription and the SDP generate/parse
  * helpers (pure logic — fully exercised here).
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const { RTCSessionDescription, RTCSdpType } = require('../src/sdp/RTCSessionDescription');
-const sdp = require('../src/sdp/sdp-utils');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import { RTCSessionDescription, RTCSdpType } from '../src/sdp/RTCSessionDescription';
+import * as sdp from '../src/sdp/sdp-utils';
 
 describe('RTCSessionDescription', () => {
   it('stores type and sdp', () => {

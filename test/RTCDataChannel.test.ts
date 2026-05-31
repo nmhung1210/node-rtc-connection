@@ -1,12 +1,13 @@
 /**
- * @file RTCDataChannel.test.js
+ * @file RTCDataChannel.test.ts
  * @description Tests for RTCDataChannel with real networking
  */
 
-const { describe, it, beforeEach, afterEach } = require('node:test');
-const assert = require('node:assert');
-const { RTCDataChannel, RTCDataChannelState } = require('../src/datachannel/RTCDataChannel.js');
-const { createConnectedPeers, closePeers } = require('./helpers/peer-connection-helper.js');
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert';
+import { RTCDataChannel, RTCDataChannelState } from '../src/datachannel/RTCDataChannel';
+// @ts-ignore -- helper is still a CommonJS .js module
+import { createConnectedPeers, closePeers } from './helpers/peer-connection-helper';
 
 describe('RTCDataChannel', () => {
   describe('Constructor', () => {
@@ -44,7 +45,7 @@ describe('RTCDataChannel', () => {
 
     it('should throw TypeError if label is not a string', () => {
       assert.throws(() => {
-        new RTCDataChannel(123);
+        new RTCDataChannel(123 as any);
       }, TypeError);
     });
 
@@ -58,7 +59,7 @@ describe('RTCDataChannel', () => {
   });
 
   describe('Properties', () => {
-    let channel;
+    let channel: RTCDataChannel;
 
     beforeEach(() => {
       channel = new RTCDataChannel('test', {
@@ -127,7 +128,7 @@ describe('RTCDataChannel', () => {
 
     it('should throw TypeError for invalid binaryType', () => {
       assert.throws(() => {
-        channel.binaryType = 'invalid';
+        channel.binaryType = 'invalid' as any;
       }, TypeError);
     });
 
@@ -147,7 +148,7 @@ describe('RTCDataChannel', () => {
   });
 
   describe('State Transitions', () => {
-    let channel;
+    let channel: RTCDataChannel;
 
     beforeEach(() => {
       channel = new RTCDataChannel('test');
@@ -211,7 +212,7 @@ describe('RTCDataChannel', () => {
   });
 
   describe.skip('Send', () => {
-    let pc1, pc2, channel;
+    let pc1: any, pc2: any, channel: any;
 
     beforeEach(async () => {
       // Create connected peers with real networking
@@ -319,7 +320,7 @@ describe('RTCDataChannel', () => {
   });
 
   describe('Receive', () => {
-    let channel;
+    let channel: RTCDataChannel;
 
     beforeEach(() => {
       channel = new RTCDataChannel('test');
@@ -327,7 +328,7 @@ describe('RTCDataChannel', () => {
     });
 
     it('should emit a string message for non-binary frames', (t, done) => {
-      channel.on('message', (event) => {
+      channel.on('message', (event: any) => {
         assert.strictEqual(event.data, 'Hello');
         done();
       });
@@ -336,7 +337,7 @@ describe('RTCDataChannel', () => {
 
     it('should emit binary frames as ArrayBuffer by default', (t, done) => {
       const buffer = Buffer.from([1, 2, 3]);
-      channel.on('message', (event) => {
+      channel.on('message', (event: any) => {
         assert.ok(event.data instanceof ArrayBuffer);
         assert.deepStrictEqual(new Uint8Array(event.data), new Uint8Array([1, 2, 3]));
         done();
@@ -374,13 +375,13 @@ describe('RTCDataChannel', () => {
     it('should be frozen', () => {
       assert.throws(() => {
         'use strict';
-        RTCDataChannelState.CONNECTING = 'modified';
+        (RTCDataChannelState as any).CONNECTING = 'modified';
       });
     });
   });
 
   describe.skip('Event Emitter', () => {
-    let pc1, pc2, channel, remoteChannel;
+    let pc1: any, pc2: any, channel: any, remoteChannel: any;
 
     beforeEach(async () => {
       // Create connected peers
@@ -402,7 +403,7 @@ describe('RTCDataChannel', () => {
 
     it('should support on() for close event', async (t) => {
       // Channel is already open from beforeEach
-      await new Promise(resolve => {
+      await new Promise<void>(resolve => {
         channel.on('close', resolve);
         channel.close();
       });
@@ -410,19 +411,19 @@ describe('RTCDataChannel', () => {
 
     it('should support on() for message event', async (t) => {
       // Channels are already open from beforeEach
-      await new Promise((resolve) => {
-        channel.once('message', (event) => {
+      await new Promise<void>((resolve) => {
+        channel.once('message', (event: any) => {
           assert.strictEqual(event.data, 'test');
           resolve();
         });
-        
+
         remoteChannel.send('test');
       });
     });
 
     it('should support on() for bufferedamountlow event', async (t) => {
       channel.bufferedAmountLowThreshold = 10;
-      await new Promise(resolve => {
+      await new Promise<void>(resolve => {
         channel.on('bufferedamountlow', () => {
           resolve();
         });
@@ -441,7 +442,7 @@ describe('RTCDataChannel', () => {
       testChannel.once('open', () => {
         count++;
       });
-      
+
       await new Promise(r => setTimeout(r, 200));
       assert.strictEqual(count, 1);
     });
@@ -460,7 +461,7 @@ describe('RTCDataChannel', () => {
   });
 
   describe.skip('Integration', () => {
-    let pc1, pc2;
+    let pc1: any, pc2: any;
 
     afterEach(() => {
       closePeers(pc1, pc2);
@@ -472,11 +473,11 @@ describe('RTCDataChannel', () => {
       pc2 = peers.pc2;
       const channel = peers.channel1;
 
-      const events = [];
+      const events: string[] = [];
       channel.on('open', () => events.push('open'));
       channel.on('closing', () => events.push('closing'));
-      
-      await new Promise(resolve => {
+
+      await new Promise<void>(resolve => {
         channel.on('close', () => {
           events.push('close');
           assert.deepStrictEqual(events, ['open', 'closing', 'close']);
@@ -495,9 +496,9 @@ describe('RTCDataChannel', () => {
       const channel1 = peers.channel1;
       const channel2 = peers.channel2;
 
-      await new Promise(resolve => {
+      await new Promise<void>(resolve => {
         let received = 0;
-        channel1.on('message', (event) => {
+        channel1.on('message', (event: any) => {
           received++;
           if (received === 2) {
             resolve();

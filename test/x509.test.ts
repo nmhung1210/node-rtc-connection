@@ -1,13 +1,13 @@
 /**
- * @file x509.test.js
+ * @file x509.test.ts
  * @description Tests for the pure-Node DER encoder and X.509 certificate builder.
  */
 
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const crypto = require('crypto');
-const der = require('../src/crypto/der');
-const x509 = require('../src/crypto/x509');
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import * as crypto from 'crypto';
+import * as der from '../src/crypto/der';
+import * as x509 from '../src/crypto/x509';
 
 describe('DER encoder', () => {
   it('encodes short lengths in one byte', () => {
