@@ -74,14 +74,21 @@ TypeScript types (keep in sync manually).
 - **ICE** (`src/ice/ice-agent.js` + `stun-message.js`): connectivity checks
   carry USERNAME, MESSAGE-INTEGRITY (HMAC-SHA1 keyed by ice-pwd), FINGERPRINT,
   PRIORITY, ICE-CONTROLLING/CONTROLLED, USE-CANDIDATE. Aggressive nomination.
+  Gathers **host**, **srflx** (STUN binding), and **relay** (TURN ALLOCATE)
+  candidates from `configuration.iceServers`; `iceTransportPolicy:'relay'`
+  forces relay-only. Each candidate carries a uniform `transport` (host UDP
+  socket or `RelayTransport` over `stun-client`) so checks and DTLS data flow
+  identically over either. `configuration.iceServers` is threaded
+  RTCPeerConnection → `TransportStack.gather()` → `IceAgent.gather()`.
 
-### Legacy modules (still present, used only by STUN/TURN tests)
+### Legacy modules
 
-`src/ice/RTCIceTransport.js` and `src/stun/stun-client.js` are **old** transport
-classes the real data path no longer uses. `stun-client.js` remains a correct
-STUN/TURN client and `RTCIceTransport._parseServerUrl` backs the
-`url-parsing`/`turn-support` tests. Don't route data-channel work through these —
-use the `src/ice/ice-agent` + `TransportStack` path. (The old plain-TCP/JSON
+`src/ice/RTCIceTransport.js` is the **old** ICE transport the real data path no
+longer uses; `RTCIceTransport._parseServerUrl` backs the `url-parsing`/
+`turn-support` tests. `src/stun/stun-client.js` is **shared**: it is the STUN/
+TURN client used both by the legacy transport and by the live `IceAgent`'s
+`RelayTransport`. Don't route data-channel work through `RTCIceTransport` — use
+the `src/ice/ice-agent` + `TransportStack` path. (The old plain-TCP/JSON
 `src/network/network-transport.js` data path has been deleted.)
 
 ### Role negotiation
@@ -104,9 +111,14 @@ Each layer has an external-reference test, not just self-loopback:
 - `test/browser-interop.test.js` — **drives headless Chrome** through
   `test/browser/run-browser-interop.js`; asserts a data channel opens and
   string + binary flow both directions. The authoritative interop proof.
+- `test/turn-e2e.test.js` — connects two peers forced to `iceTransportPolicy:
+  'relay'` against a **real coturn** server and confirms data flows entirely
+  over the TURN relay (selected candidate type is `relay`).
 
-Interop tests skip gracefully when openssl/Chrome are absent or
-`SKIP_INTEGRATION=1`. Set `CHROME_PATH` to override Chrome discovery.
+Interop tests skip gracefully when their dependency is absent or
+`SKIP_INTEGRATION=1`. `CHROME_PATH` overrides Chrome discovery; the TURN test
+uses `TURN_HOST`/`TURN_PORT`/`TURN_USER`/`TURN_PASS` (default
+`127.0.0.1:3478`, `testuser`/`testpass`) and skips if no server answers.
 
 ## Conventions
 
