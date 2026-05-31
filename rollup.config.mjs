@@ -65,14 +65,23 @@ export default {
       tsconfig: './tsconfig.json',
       module: 'esnext',
       moduleResolution: 'bundler',
+      // The package requires Node >= 18 (V8 with native class fields), so emit
+      // ES2022: `#private` fields compile to native syntax instead of the
+      // WeakMap-based tslib down-level helpers — smaller and faster.
+      target: 'es2022',
       declaration: true,
       declarationDir: 'dist/types',
       declarationMap: false,
       sourceMap: false,
       outDir: undefined,
     }),
-    // Minify the published bundles.
-    terser(),
+    // Minify the published bundles. Strip all comments (the LICENSE file ships
+    // alongside, so embedded header/@license copies are redundant bloat) and
+    // run multiple compress passes for a smaller, more gzip-friendly result.
+    terser({
+      compress: { passes: 2 },
+      format: { comments: false },
+    }),
     // Emit the minimal dist/package.json + copy README/LICENSE.
     publishManifest(),
   ],
