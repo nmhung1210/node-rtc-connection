@@ -7,8 +7,8 @@ reports, fixes, tests, and documentation improvements are all welcome.
 ## Getting started
 
 ```bash
-git clone https://github.com/nmhung1210/nodertc.git
-cd nodertc
+git clone https://github.com/nmhung1210/node-rtc-connection.git
+cd node-rtc-connection
 npm install
 npm run typecheck   # strict tsc over src + tests
 npm test            # full suite

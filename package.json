@@ -74,10 +74,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nmhung1210/nodertc.git"
+    "url": "git+https://github.com/nmhung1210/node-rtc-connection.git"
   },
   "bugs": {
-    "url": "https://github.com/nmhung1210/nodertc/issues"
+    "url": "https://github.com/nmhung1210/node-rtc-connection/issues"
   },
-  "homepage": "https://github.com/nmhung1210/nodertc#readme"
+  "homepage": "https://github.com/nmhung1210/node-rtc-connection#readme"
 }

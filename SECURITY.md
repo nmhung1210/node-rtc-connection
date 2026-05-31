@@ -19,7 +19,7 @@ vulnerability — for example in the handshake, certificate handling, message
 authentication, or any path that could lead to data disclosure or spoofing —
 report it privately:
 
-- Use GitHub's **["Report a vulnerability"](https://github.com/nmhung1210/nodertc/security/advisories/new)**
+- Use GitHub's **["Report a vulnerability"](https://github.com/nmhung1210/node-rtc-connection/security/advisories/new)**
   (Security → Advisories) to open a private advisory, or
 - Open a minimal public issue asking a maintainer to contact you, without
   disclosing details.

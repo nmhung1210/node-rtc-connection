@@ -63,5 +63,5 @@ Pre-rewrite releases. See the Git tag history (`v1.0.1` … `v1.0.19`) for
 details. These versions exposed a WebRTC-shaped API but did not implement the
 real wire protocols and were not browser-interoperable.
 
-[2.0.1]: https://github.com/nmhung1210/nodertc/compare/v2.0.0...v2.0.1
-[2.0.0]: https://github.com/nmhung1210/nodertc/compare/v1.0.19...v2.0.0
+[2.0.1]: https://github.com/nmhung1210/node-rtc-connection/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/nmhung1210/node-rtc-connection/compare/v1.0.19...v2.0.0
