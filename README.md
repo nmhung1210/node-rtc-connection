@@ -1,5 +1,12 @@
 # node-rtc-connection
 
+[![npm version](https://img.shields.io/npm/v/node-rtc-connection.svg)](https://www.npmjs.com/package/node-rtc-connection)
+[![npm downloads](https://img.shields.io/npm/dm/node-rtc-connection.svg)](https://www.npmjs.com/package/node-rtc-connection)
+[![CI](https://github.com/nmhung1210/nodertc/actions/workflows/test.yml/badge.svg)](https://github.com/nmhung1210/nodertc/actions/workflows/test.yml)
+[![Node.js](https://img.shields.io/node/v/node-rtc-connection.svg)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](https://www.typescriptlang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 A from-scratch, pure-Node.js WebRTC data-channel implementation that
 **interoperates with browsers**. No native dependencies — the entire ICE / DTLS
 / SCTP stack is built on Node's `crypto` and `dgram`. Written in TypeScript;
