@@ -4,10 +4,10 @@
   "description": "WebRTC DataChannel implementation for Node.js with STUN, TURN, NAT traversal, and encryption. Pure Node.js, no native dependencies.",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
+  "types": "dist/types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./dist/types/index.d.ts",
       "require": "./dist/index.cjs",
       "import": "./dist/index.mjs"
     }
@@ -19,9 +19,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run build:types && npm run build:bundle",
-    "build:types": "tsc -p tsconfig.json --emitDeclarationOnly --declarationMap false --outDir dist",
-    "build:bundle": "rollup -c",
+    "build": "rollup -c",
     "typecheck": "tsc -p tsconfig.test.json",
     "prepublishOnly": "npm run build && npm test",
     "test": "node --import tsx test/run-all-tests.ts",

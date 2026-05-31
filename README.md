@@ -463,7 +463,7 @@ The project is written in strict TypeScript. Sources live in `src/`; tests in
 precompile step).
 
 ```bash
-npm run build          # tsc (type declarations) + rollup → minified dist/ bundles
+npm run build          # rollup → minified dist/ bundles + dist/types/ declarations
 npm run typecheck      # strict tsc --noEmit over src + tests
 npm test               # full suite (auto-starts a coturn container for the TURN test)
 npm run test:unit      # SKIP_INTEGRATION=1 — no Docker / browser / external servers
