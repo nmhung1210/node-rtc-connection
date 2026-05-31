@@ -45,9 +45,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Strict TypeScript typecheck (src + tests) — fails the build on type errors.
+      - name: Typecheck
+        run: npm run typecheck
+
       # openssl is preinstalled on ubuntu-latest and drives the DTLS interop
-      # tests (test/dtls-openssl-interop.test.js). Playwright's Chromium drives
-      # the end-to-end browser interop test (test/browser-interop.test.js); both
+      # tests (test/dtls-openssl-interop.test.ts). Playwright's Chromium drives
+      # the end-to-end browser interop test (test/browser-interop.test.ts); both
       # suites skip automatically if their tool is missing.
       - name: Show toolchain versions
         run: |
@@ -62,9 +66,9 @@ jobs:
           echo "Checking if TURN server is accessible..."
           timeout 10 bash -c 'until nc -zv 127.0.0.1 3478; do sleep 1; done' || echo "TURN server not responding (TURN tests may skip)"
 
-      # TURN_HOST tells run-all-tests.js a TURN server is already provided (the
+      # TURN_HOST tells run-all-tests.ts a TURN server is already provided (the
       # coturn service container above), so it won't try to start its own.
-      - name: Run all tests
+      - name: Run all tests (tsx)
         run: npm test
         env:
           TURN_HOST: 127.0.0.1
