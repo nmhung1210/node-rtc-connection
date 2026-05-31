@@ -26,7 +26,7 @@ jobs:
 
       # Run unit + protocol tests on publish. The DTLS-vs-openssl interop tests
       # run too (openssl is preinstalled); the browser test self-skips here
-      # since Chrome is not installed in the publish job.
+      # since Playwright's Chromium is not installed in the publish job.
       - name: Run tests
         run: npm test
 

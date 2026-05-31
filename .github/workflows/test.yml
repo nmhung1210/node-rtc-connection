@@ -46,19 +46,16 @@ jobs:
         run: npm ci
 
       # openssl is preinstalled on ubuntu-latest and drives the DTLS interop
-      # tests (test/dtls-openssl-interop.test.js). Chrome enables the end-to-end
-      # browser interop test (test/browser-interop.test.js); both suites skip
-      # automatically if their tool is missing.
+      # tests (test/dtls-openssl-interop.test.js). Playwright's Chromium drives
+      # the end-to-end browser interop test (test/browser-interop.test.js); both
+      # suites skip automatically if their tool is missing.
       - name: Show toolchain versions
         run: |
           node --version
           openssl version
 
-      - name: Install Google Chrome (for browser interop test)
-        id: setup-chrome
-        uses: browser-actions/setup-chrome@v1
-        with:
-          chrome-version: stable
+      - name: Install Playwright Chromium (for browser interop test)
+        run: npx playwright install --with-deps chromium
 
       - name: Verify TURN server
         run: |
@@ -67,5 +64,3 @@ jobs:
 
       - name: Run all tests
         run: npm test
-        env:
-          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}

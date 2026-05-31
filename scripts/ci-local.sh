@@ -45,22 +45,20 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Chrome discovery (CI: browser-actions/setup-chrome -> CHROME_PATH)
+# 2. Playwright Chromium (CI: npx playwright install --with-deps chromium)
 # ---------------------------------------------------------------------------
-if [ -z "${CHROME_PATH:-}" ]; then
-  for c in \
-    "/c/Program Files/Google/Chrome/Application/chrome.exe" \
-    "/c/Program Files (x86)/Google/Chrome/Application/chrome.exe" \
-    "/usr/bin/google-chrome" \
-    "/usr/bin/chromium-browser" \
-    "/usr/bin/chromium"; do
-    if [ -x "$c" ] || [ -f "$c" ]; then export CHROME_PATH="$c"; break; fi
-  done
-fi
-if [ -n "${CHROME_PATH:-}" ]; then
-  log "Chrome: $CHROME_PATH"
+# The browser interop test uses Playwright's bundled Chromium. Ensure it's
+# installed; if not, install it (browser only — deps are assumed present
+# locally). Without it, the browser interop test skips.
+if [ "${SKIP_INTEGRATION:-0}" = "1" ]; then
+  warn "SKIP_INTEGRATION=1 — skipping Playwright browser setup"
+elif node -e "require('playwright').chromium.executablePath()" >/dev/null 2>&1; then
+  log "Playwright Chromium present"
 else
-  warn "Chrome not found — browser interop test will skip (set CHROME_PATH to override)"
+  log "Installing Playwright Chromium..."
+  npx playwright install chromium >/dev/null 2>&1 \
+    && log "Playwright Chromium installed" \
+    || warn "Could not install Playwright Chromium — browser interop test will skip"
 fi
 
 # ---------------------------------------------------------------------------

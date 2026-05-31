@@ -26,9 +26,10 @@ node --test --test-name-pattern="creates a data channel" test/RTCDataChannel.tes
 ```
 
 `npm run test:ci` (`scripts/ci-local.sh`) mirrors `.github/workflows/test.yml`:
-it starts a `coturn` container (same image/creds/ports), discovers openssl and
-Chrome, runs `npm test`, and tears coturn down. It needs Docker for the TURN
-test; without it (or with `SKIP_INTEGRATION=1`) the integration suites skip.
+it starts a `coturn` container (same image/creds/ports), ensures Playwright's
+Chromium is installed, runs `npm test`, and tears coturn down. It needs Docker
+for the TURN test; without it (or with `SKIP_INTEGRATION=1`) the integration
+suites skip.
 
 `SKIP_INTEGRATION=1` is honored by tests that open real sockets / reach external
 STUN/TURN servers — set it when working offline. CI runs the full suite against
@@ -115,17 +116,23 @@ Each layer has an external-reference test, not just self-loopback:
 - `test/sctp-loopback.test.js`, `test/datachannel-stack.test.js`,
   `test/transport-stack.test.js` — SCTP/DCEP and the full ICE+DTLS+SCTP pipeline
   over real UDP.
-- `test/browser-interop.test.js` — **drives headless Chrome** through
-  `test/browser/run-browser-interop.js`; asserts a data channel opens and
-  string + binary flow both directions. The authoritative interop proof.
+- `test/browser-interop.test.js` — **drives real Chromium via Playwright**
+  against the in-process signaling harness (`test/browser/interop-server.js`);
+  asserts a data channel opens and string + binary flow both directions. The
+  authoritative interop proof.
 - `test/turn-e2e.test.js` — connects two peers forced to `iceTransportPolicy:
   'relay'` against a **real coturn** server and confirms data flows entirely
   over the TURN relay (selected candidate type is `relay`).
 
 Interop tests skip gracefully when their dependency is absent or
-`SKIP_INTEGRATION=1`. `CHROME_PATH` overrides Chrome discovery; the TURN test
-uses `TURN_HOST`/`TURN_PORT`/`TURN_USER`/`TURN_PASS` (default
-`127.0.0.1:3478`, `testuser`/`testpass`) and skips if no server answers.
+`SKIP_INTEGRATION=1`. The browser test needs Playwright's Chromium
+(`npx playwright install chromium`); the TURN test uses
+`TURN_HOST`/`TURN_PORT`/`TURN_USER`/`TURN_PASS` (default `127.0.0.1:3478`,
+`testuser`/`testpass`) and skips if no server answers.
+
+Browsers obfuscate host candidates as mDNS `.local` hostnames; the ICE agent
+skips those (no resolver) and connects via the peer-reflexive candidate learned
+from the browser's inbound checks.
 
 ## Conventions
 
