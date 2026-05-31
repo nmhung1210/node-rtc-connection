@@ -282,6 +282,11 @@ class IceAgent extends EventEmitter {
    */
   addRemoteCandidate(cand) {
     if (!cand || !cand.address || !cand.port) return;
+    // Browsers obfuscate host candidates as mDNS ".local" hostnames. We don't
+    // run an mDNS resolver, so these are unusable and sending checks to them
+    // triggers failing DNS lookups. Skip them — connectivity still succeeds via
+    // the peer-reflexive candidate we learn from the browser's inbound checks.
+    if (typeof cand.address === 'string' && cand.address.endsWith('.local')) return;
     this._remoteCandidates.push(cand);
     this._formPairs();
     if (!this._checkTimer && this.remotePwd) this._startChecks();
