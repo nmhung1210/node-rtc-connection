@@ -62,9 +62,12 @@ class TransportStack extends EventEmitter {
     });
   }
 
-  /** Begin gathering local candidates. */
-  async gather() {
-    await this.ice.gather();
+  /**
+   * Begin gathering local candidates.
+   * @param {Object} [opts] - { iceServers, iceTransportPolicy } forwarded to ICE.
+   */
+  async gather(opts = {}) {
+    await this.ice.gather(opts);
   }
 
   getLocalCandidates() {

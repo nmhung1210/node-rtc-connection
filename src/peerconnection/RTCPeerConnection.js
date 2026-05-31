@@ -230,7 +230,10 @@ class RTCPeerConnection extends EventEmitter {
     this._iceGatheringState = RTCIceGatheringState.GATHERING;
     this.emit('icegatheringstatechange');
     if (this._stack) {
-      await this._stack.gather();
+      await this._stack.gather({
+        iceServers: this._configuration.iceServers || [],
+        iceTransportPolicy: this._configuration.iceTransportPolicy || 'all',
+      });
       this._iceGatheringState = RTCIceGatheringState.COMPLETE;
       this.emit('icegatheringstatechange');
       // Signal end-of-candidates.
