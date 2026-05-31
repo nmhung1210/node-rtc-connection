@@ -1,0 +1,237 @@
+/**
+ * @file ByteBufferQueue - Efficient byte buffer with O(1) append and O(n) read.
+ *
+ * This class provides efficient management of byte buffers with O(1) append operations
+ * and O(n) read operations. Clients can append entire buffers then copy data out across
+ * buffer boundaries.
+ *
+ * @license MIT
+ * @author nmhung1210
+ */
+
+'use strict';
+
+/**
+ * A ByteBufferQueue manages a queue of byte buffers with efficient operations.
+ *
+ * Invariants maintained:
+ * - size_ = sum of all buffer sizes - frontBufferOffset_
+ * - No buffer in the queue is empty
+ * - If queue is empty, frontBufferOffset_ = 0
+ * - Otherwise, frontBufferOffset_ < front buffer size
+ */
+class ByteBufferQueue {
+  /**
+   * Total number of bytes available to read.
+   * @private {number}
+   */
+  #size: number;
+
+  /**
+   * Double-ended queue of byte buffers.
+   * Append() pushes to the back, ReadInto() consumes from the front.
+   * @private {Buffer[]}
+   */
+  #buffers: Buffer[];
+
+  /**
+   * Offset from which to start reading the front buffer.
+   * @private {number}
+   */
+  #frontBufferOffset: number;
+
+  constructor() {
+    this.#size = 0;
+    this.#buffers = [];
+    this.#frontBufferOffset = 0;
+  }
+
+  /**
+   * Number of bytes that can be read.
+   * @returns {number}
+   */
+  get size(): number {
+    return this.#size;
+  }
+
+  /**
+   * Returns true if no bytes are available to read.
+   * @returns {boolean}
+   */
+  get empty(): boolean {
+    return this.#size === 0;
+  }
+
+  /**
+   * Copies data into the given buffer. Consumes bytes from the queue.
+   * Returns the number of bytes written to bufferOut.
+   *
+   * @param {Buffer} bufferOut - Destination buffer to read into
+   * @returns {number} Number of bytes actually read
+   * @throws {TypeError} If bufferOut is not a Buffer
+   */
+  readInto(bufferOut: Buffer): number {
+    if (!Buffer.isBuffer(bufferOut)) {
+      throw new TypeError('bufferOut must be a Buffer');
+    }
+
+    let readAmount = 0;
+    let outputOffset = 0;
+
+    while (outputOffset < bufferOut.length && this.#buffers.length > 0) {
+      const frontBuffer = this.#buffers[0]!;
+      const availableInFront = frontBuffer.length - this.#frontBufferOffset;
+      const remainingOutput = bufferOut.length - outputOffset;
+      const toCopy = Math.min(availableInFront, remainingOutput);
+
+      // Copy data from front buffer to output
+      frontBuffer.copy(
+        bufferOut,
+        outputOffset,
+        this.#frontBufferOffset,
+        this.#frontBufferOffset + toCopy
+      );
+
+      readAmount += toCopy;
+      outputOffset += toCopy;
+
+      if (toCopy < availableInFront) {
+        // Partial read, update offset
+        this.#frontBufferOffset += toCopy;
+      } else {
+        // Consumed entire front buffer, remove it
+        this.#buffers.shift();
+        this.#frontBufferOffset = 0;
+      }
+    }
+
+    this.#size -= readAmount;
+    this.#checkInvariants();
+    return readAmount;
+  }
+
+  /**
+   * Appends a buffer to the queue. Takes ownership of the buffer.
+   * Empty buffers are ignored.
+   *
+   * @param {Buffer} buffer - Buffer to append
+   * @throws {TypeError} If buffer is not a Buffer
+   */
+  append(buffer: Buffer): void {
+    if (!Buffer.isBuffer(buffer)) {
+      throw new TypeError('buffer must be a Buffer');
+    }
+
+    if (buffer.length === 0) {
+      return; // Ignore empty buffers
+    }
+
+    this.#size += buffer.length;
+    this.#buffers.push(buffer);
+    this.#checkInvariants();
+  }
+
+  /**
+   * Clears all stored buffers.
+   */
+  clear(): void {
+    this.#buffers = [];
+    this.#frontBufferOffset = 0;
+    this.#size = 0;
+    this.#checkInvariants();
+  }
+
+  /**
+   * Reads and consumes exactly n bytes.
+   *
+   * @param {number} n - Number of bytes to read
+   * @returns {Buffer} Buffer containing exactly n bytes
+   * @throws {RangeError} If fewer than n bytes are available
+   */
+  read(n: number): Buffer {
+    if (n > this.#size) {
+      throw new RangeError(`Cannot read ${n} bytes, only ${this.#size} available`);
+    }
+    if (n === 0) {
+      return Buffer.allocUnsafe(0);
+    }
+
+    const result = Buffer.allocUnsafe(n);
+    const bytesRead = this.readInto(result);
+
+    if (bytesRead !== n) {
+      throw new Error(`Internal error: read ${bytesRead} bytes, expected ${n}`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Peeks at data without consuming it.
+   *
+   * @param {number} [n=this.#size] - Number of bytes to peek
+   * @returns {Buffer} Buffer containing up to n bytes (not consumed)
+   */
+  peek(n: number = this.#size): Buffer {
+    const peekAmount = Math.min(n, this.#size);
+    if (peekAmount === 0) {
+      return Buffer.allocUnsafe(0);
+    }
+
+    const result = Buffer.allocUnsafe(peekAmount);
+    let written = 0;
+    let bufferIndex = 0;
+    let offset = this.#frontBufferOffset;
+
+    while (written < peekAmount && bufferIndex < this.#buffers.length) {
+      const buffer = this.#buffers[bufferIndex]!;
+      const available = buffer.length - offset;
+      const toCopy = Math.min(available, peekAmount - written);
+
+      buffer.copy(result, written, offset, offset + toCopy);
+      written += toCopy;
+
+      bufferIndex++;
+      offset = 0; // Reset offset for subsequent buffers
+    }
+
+    return result;
+  }
+
+  /**
+   * Checks internal invariants (development mode only).
+   * @private
+   * @throws {Error} If invariants are violated
+   */
+  #checkInvariants(): void {
+    if (process.env.NODE_ENV !== 'production') {
+      let bufferSizeSum = 0;
+      for (const buffer of this.#buffers) {
+        if (buffer.length === 0) {
+          throw new Error('Invariant violation: empty buffer in queue');
+        }
+        bufferSizeSum += buffer.length;
+      }
+
+      const expectedSize = bufferSizeSum - this.#frontBufferOffset;
+      if (this.#size !== expectedSize) {
+        throw new Error(
+          `Invariant violation: size=${this.#size}, expected=${expectedSize}`
+        );
+      }
+
+      if (this.#buffers.length === 0) {
+        if (this.#frontBufferOffset !== 0) {
+          throw new Error('Invariant violation: offset non-zero with empty queue');
+        }
+      } else {
+        if (this.#frontBufferOffset >= this.#buffers[0]!.length) {
+          throw new Error('Invariant violation: offset >= front buffer size');
+        }
+      }
+    }
+  }
+}
+
+export default ByteBufferQueue;
+export { ByteBufferQueue };
