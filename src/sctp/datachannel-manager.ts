@@ -17,7 +17,7 @@ import { EventEmitter } from 'events';
 import * as dcep from './dcep';
 import { PPID } from './chunks';
 import type { SctpAssociation, SctpMessage } from './association';
-import { RTCDataChannel } from '../datachannel/RTCDataChannel';
+import { RTCDataChannel, RTCDataChannelEvents } from '../datachannel/RTCDataChannel';
 
 /** Subset of RTCDataChannelInit used when opening/accepting channels. */
 interface ChannelInit {
@@ -67,11 +67,10 @@ class DataChannelManager extends EventEmitter {
    * @param {Object} init - { ordered, maxRetransmits, maxPacketLifeTime, protocol }
    */
   openChannel(channel: RTCDataChannel, init: ChannelInit = {}): void {
-    const ctl = RTCDataChannel.control(channel);
     let streamId = channel.id;
     if (streamId === null || streamId === undefined) {
       streamId = this.#allocateStreamId();
-      ctl.setId(streamId);
+      channel.emit(RTCDataChannelEvents.SET_ID, streamId);
     }
     this.#channels.set(streamId, { channel, acked: false });
     this.#attachSender(channel, streamId, init);
@@ -89,7 +88,7 @@ class DataChannelManager extends EventEmitter {
     } else {
       // Pre-negotiated: considered open immediately.
       (this.#channels.get(streamId) as ChannelEntry).acked = true;
-      ctl.open();
+      channel.emit(RTCDataChannelEvents.OPEN);
     }
   }
 
@@ -121,10 +120,10 @@ class DataChannelManager extends EventEmitter {
     return 0;
   }
 
-  /** Wire channel.send() -> SCTP DATA with the right PPID and ordering. */
+  /** Wire the channel's outbound SEND events -> SCTP DATA with the right PPID. */
   #attachSender(channel: RTCDataChannel, streamId: number, init: ChannelInit): void {
     const unordered = init.ordered === false;
-    RTCDataChannel.control(channel).setSender((data: Buffer, isBinary: boolean) => {
+    channel.on(RTCDataChannelEvents.SEND, (data: Buffer, isBinary: boolean) => {
       let ppid: number;
       if (isBinary) {
         ppid = data.length === 0 ? PPID.BINARY_EMPTY : PPID.BINARY;
@@ -147,7 +146,7 @@ class DataChannelManager extends EventEmitter {
     const isBinary = m.ppid === PPID.BINARY || m.ppid === PPID.BINARY_EMPTY || m.ppid === PPID.BINARY_PARTIAL;
     const isEmpty = m.ppid === PPID.STRING_EMPTY || m.ppid === PPID.BINARY_EMPTY;
     const data = isEmpty ? Buffer.alloc(0) : m.data;
-    RTCDataChannel.control(entry.channel).receiveMessage(data, isBinary);
+    entry.channel.emit(RTCDataChannelEvents.RECEIVE, data, isBinary);
   }
 
   #onDcep(m: SctpMessage): void {
@@ -168,7 +167,7 @@ class DataChannelManager extends EventEmitter {
       const entry = this.#channels.get(m.streamId);
       if (entry && !entry.acked) {
         entry.acked = true;
-        RTCDataChannel.control(entry.channel).open();
+        entry.channel.emit(RTCDataChannelEvents.OPEN);
       }
     }
   }
@@ -178,11 +177,10 @@ class DataChannelManager extends EventEmitter {
    * attach its sender.
    */
   acceptChannel(channel: RTCDataChannel, info: OpenRequestInfo): void {
-    const ctl = RTCDataChannel.control(channel);
-    ctl.setId(info.streamId);
+    channel.emit(RTCDataChannelEvents.SET_ID, info.streamId);
     this.#channels.set(info.streamId, { channel, acked: true });
     this.#attachSender(channel, info.streamId, { ordered: info.ordered });
-    ctl.open();
+    channel.emit(RTCDataChannelEvents.OPEN);
   }
 }
 

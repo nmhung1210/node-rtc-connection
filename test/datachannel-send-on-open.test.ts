@@ -1,56 +1,64 @@
 /**
  * @file datachannel-send-on-open.test.ts
- * @description Tests the RTCDataChannel transport-sender contract. Channels
- * deliver outbound data through an injected sender (set by the SCTP data
- * channel manager) rather than the legacy network-transport `_send` hook.
+ * @description Tests the RTCDataChannel transport contract. A channel delivers
+ * outbound data by emitting the internal SEND event (which the SCTP data
+ * channel manager listens for), and the transport drives the channel via the
+ * internal OPEN / SET_ID / RECEIVE events.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
-import { RTCDataChannel } from '../src/index';
+import { RTCDataChannel, RTCDataChannelEvents } from '../src/datachannel/RTCDataChannel';
 
-describe('Data Channel sender contract', () => {
-  it('invokes the sender with (Buffer, isBinary=false) for strings', () => {
+describe('Data Channel transport contract', () => {
+  it('emits SEND with (Buffer, isBinary=false) for strings', () => {
     const channel = new RTCDataChannel('test');
-    let captured: any = null;
-    RTCDataChannel.control(channel).setSender((data: any, isBinary: any) => { captured = { data, isBinary }; });
-    RTCDataChannel.control(channel).open();
+    const sent: Array<{ data: Buffer; isBinary: boolean }> = [];
+    channel.on(RTCDataChannelEvents.SEND, (data: Buffer, isBinary: boolean) => { sent.push({ data, isBinary }); });
+    channel.emit(RTCDataChannelEvents.OPEN);
 
     channel.send('hello');
-    assert.ok(Buffer.isBuffer(captured.data));
-    assert.strictEqual(captured.data.toString(), 'hello');
-    assert.strictEqual(captured.isBinary, false);
+    assert.strictEqual(sent.length, 1);
+    assert.ok(Buffer.isBuffer(sent[0]!.data));
+    assert.strictEqual(sent[0]!.data.toString(), 'hello');
+    assert.strictEqual(sent[0]!.isBinary, false);
   });
 
-  it('invokes the sender with isBinary=true for ArrayBuffer/typed arrays', () => {
+  it('emits SEND with isBinary=true for ArrayBuffer/typed arrays', () => {
     const channel = new RTCDataChannel('test');
-    let captured: any = null;
-    RTCDataChannel.control(channel).setSender((data: any, isBinary: any) => { captured = { data, isBinary }; });
-    RTCDataChannel.control(channel).open();
+    const sent: Array<{ data: Buffer; isBinary: boolean }> = [];
+    channel.on(RTCDataChannelEvents.SEND, (data: Buffer, isBinary: boolean) => { sent.push({ data, isBinary }); });
+    channel.emit(RTCDataChannelEvents.OPEN);
 
     channel.send(Uint8Array.from([1, 2, 3]).buffer);
-    assert.ok(Buffer.isBuffer(captured.data));
-    assert.deepStrictEqual([...captured.data], [1, 2, 3]);
-    assert.strictEqual(captured.isBinary, true);
-  });
-
-  it('throws if send() is called before a sender is attached', () => {
-    const channel = new RTCDataChannel('test');
-    RTCDataChannel.control(channel).open();
-    assert.throws(() => channel.send('x'), /not connected to a transport/);
+    assert.strictEqual(sent.length, 1);
+    assert.ok(Buffer.isBuffer(sent[0]!.data));
+    assert.deepStrictEqual([...sent[0]!.data], [1, 2, 3]);
+    assert.strictEqual(sent[0]!.isBinary, true);
   });
 
   it('throws if send() is called while not open', () => {
     const channel = new RTCDataChannel('test');
-    RTCDataChannel.control(channel).setSender(() => {});
+    channel.on(RTCDataChannelEvents.SEND, () => {});
     assert.throws(() => channel.send('x'), /readyState is not "open"/);
   });
 
-  it('decrements bufferedAmount after the sender accepts the data', () => {
+  it('decrements bufferedAmount after the transport takes the data', () => {
     const channel = new RTCDataChannel('test');
-    RTCDataChannel.control(channel).setSender(() => {});
-    RTCDataChannel.control(channel).open();
+    channel.on(RTCDataChannelEvents.SEND, () => {});
+    channel.emit(RTCDataChannelEvents.OPEN);
     channel.send('abcde');
     assert.strictEqual(channel.bufferedAmount, 0);
+  });
+
+  it('fires the public open event and assigns the id from transport events', () => {
+    const channel = new RTCDataChannel('test');
+    let opened = false;
+    channel.on('open', () => { opened = true; });
+    channel.emit(RTCDataChannelEvents.SET_ID, 7);
+    channel.emit(RTCDataChannelEvents.OPEN);
+    assert.strictEqual(channel.id, 7);
+    assert.strictEqual(channel.readyState, 'open');
+    assert.strictEqual(opened, true);
   });
 });

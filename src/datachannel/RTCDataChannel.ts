@@ -24,25 +24,24 @@ export const RTCDataChannelState = Object.freeze({
 type RTCDataChannelReadyState = 'connecting' | 'open' | 'closing' | 'closed';
 type RTCDataChannelBinaryType = 'arraybuffer' | 'blob';
 
-/** The transport sender hook: called with (Buffer, isBinary). */
-type RTCDataChannelSender = (data: Buffer, isBinary: boolean) => void;
-
 /**
- * Package-internal control surface for an RTCDataChannel. The data-channel
- * manager / transport stack drive a channel through this interface rather than
- * reaching into the channel's (hard-private) fields. Obtain one via
- * `RTCDataChannel.control(channel)`.
+ * Package-internal events that wire an RTCDataChannel to the SCTP transport.
+ * They are keyed by Symbol so they never collide with — or leak into — the
+ * public event surface ('open'/'message'/'close'/'error'/'bufferedamountlow').
+ * The SCTP data-channel manager and the channel communicate purely by emitting
+ * these on the channel's own EventEmitter:
+ *
+ *   - SEND    channel → transport: outbound frame `(data: Buffer, isBinary: boolean)`
+ *   - RECEIVE transport → channel: inbound frame  `(data: Buffer, isBinary: boolean)`
+ *   - OPEN    transport → channel: transition the channel to 'open'
+ *   - SET_ID  transport → channel: assign the SCTP stream id `(id: number)`
  */
-export interface RTCDataChannelController {
-  /** Attach the transport sender (called with Buffer + isBinary flag). */
-  setSender(sender: RTCDataChannelSender): void;
-  /** Assign the SCTP stream id. */
-  setId(id: number): void;
-  /** Transition the channel to the 'open' state (fires 'open'). */
-  open(): void;
-  /** Deliver a received frame to listeners (string or binary per binaryType). */
-  receiveMessage(data: Buffer, isBinary: boolean): void;
-}
+export const RTCDataChannelEvents = Object.freeze({
+  SEND: Symbol('rtcdatachannel:send'),
+  RECEIVE: Symbol('rtcdatachannel:receive'),
+  OPEN: Symbol('rtcdatachannel:open'),
+  SET_ID: Symbol('rtcdatachannel:setId'),
+});
 
 /**
  * RTCDataChannelInit - Configuration for creating a data channel
@@ -104,7 +103,8 @@ export class RTCDataChannel extends EventEmitter {
   #bufferedAmount: number;
   #bufferedAmountLowThreshold: number;
   #binaryType: RTCDataChannelBinaryType;
-  #sender?: RTCDataChannelSender;
+  /** Whether a transport is listening for outbound SEND events. */
+  #connected: boolean;
 
   /**
    * Create an RTCDataChannel instance.
@@ -132,19 +132,17 @@ export class RTCDataChannel extends EventEmitter {
     this.#bufferedAmount = 0;
     this.#bufferedAmountLowThreshold = 0;
     this.#binaryType = 'arraybuffer'; // or 'blob'
-  }
+    this.#connected = false;
 
-  /**
-   * Obtain the package-internal control surface for a channel. Used by the
-   * data-channel manager / transport stack; not part of the public API.
-   */
-  static control(channel: RTCDataChannel): RTCDataChannelController {
-    return {
-      setSender: (sender) => { channel.#sender = sender; },
-      setId: (id) => { channel.#id = id; },
-      open: () => { channel.#setState(RTCDataChannelState.OPEN as RTCDataChannelReadyState); },
-      receiveMessage: (data, isBinary) => { channel.#receiveMessage(data, isBinary); },
-    };
+    // Transport drives the channel via internal (Symbol-keyed) events.
+    this.on(RTCDataChannelEvents.SET_ID, (id: number) => { this.#id = id; });
+    this.on(RTCDataChannelEvents.OPEN, () => {
+      this.#connected = true;
+      this.#setState(RTCDataChannelState.OPEN as RTCDataChannelReadyState);
+    });
+    this.on(RTCDataChannelEvents.RECEIVE, (data: Buffer, isBinary: boolean) => {
+      this.#receiveMessage(data, isBinary);
+    });
   }
 
   /**
@@ -303,17 +301,17 @@ export class RTCDataChannel extends EventEmitter {
       throw new TypeError('Invalid data type');
     }
 
-    // The sender carries the binary flag so the peer can reconstruct the right
-    // JS type; binary is transmitted as raw bytes (no JSON), fixing prior
-    // corruption of Buffer/ArrayBuffer payloads.
-    if (!this.#sender) {
+    // Emit the outbound frame for the transport to carry. The isBinary flag
+    // lets the peer reconstruct the right JS type; binary is transmitted as raw
+    // bytes (no JSON), avoiding corruption of Buffer/ArrayBuffer payloads.
+    if (!this.#connected) {
       throw new Error('Data channel not connected to a transport');
     }
 
-    // Update buffered amount, then decrement once the transport accepts it.
+    // Update buffered amount, then decrement once the transport has taken it.
     this.#bufferedAmount += byteLength;
     try {
-      this.#sender(dataToSend, isBinary);
+      this.emit(RTCDataChannelEvents.SEND, dataToSend, isBinary);
       this.#bufferedAmount = Math.max(0, this.#bufferedAmount - byteLength);
       this.#emitBufferedAmountLow();
     } catch (err) {
