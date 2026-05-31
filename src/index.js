@@ -18,75 +18,51 @@
 
 'use strict';
 
-// Foundation Layer
+// Foundation
 const ByteBufferQueue = require('./foundation/ByteBufferQueue');
 const RTCError = require('./foundation/RTCError');
 
-// ICE Layer
+// ICE / certificates
 const RTCIceCandidate = require('./ice/RTCIceCandidate');
-const { 
-  RTCIceTransport, 
-  RTCIceRole, 
-  RTCIceTransportState, 
-  RTCIceGatheringState 
-} = require('./ice/RTCIceTransport');
-
-// DTLS Layer
 const RTCCertificate = require('./dtls/RTCCertificate');
-const { RTCDtlsTransport, RTCDtlsTransportState } = require('./dtls/RTCDtlsTransport');
 
-// SCTP Layer
-const { RTCSctpTransport, RTCSctpTransportState } = require('./sctp/RTCSctpTransport');
-
-// DataChannel Layer
+// DataChannel
 const { RTCDataChannel, RTCDataChannelState } = require('./datachannel/RTCDataChannel');
 
-// SDP Layer
+// SDP
 const { RTCSessionDescription, RTCSdpType } = require('./sdp/RTCSessionDescription');
 
-// PeerConnection Layer
-const { 
-  RTCPeerConnection, 
-  RTCSignalingState, 
-  RTCIceGatheringState: RTCIceGatheringStatePC,
-  RTCPeerConnectionState 
+// PeerConnection
+const {
+  RTCPeerConnection,
+  RTCSignalingState,
+  RTCIceGatheringState,
+  RTCPeerConnectionState,
 } = require('./peerconnection/RTCPeerConnection');
 
-// Export all public APIs
 module.exports = {
   // Foundation
   ByteBufferQueue,
   RTCError,
-  
-  // ICE
+
+  // ICE / certificates
   RTCIceCandidate,
-  RTCIceTransport,
-  RTCIceRole,
-  RTCIceTransportState,
-  RTCIceGatheringState,
-  
-  // DTLS
   RTCCertificate,
-  RTCDtlsTransport,
-  RTCDtlsTransportState,
-  
-  // SCTP
-  RTCSctpTransport,
-  RTCSctpTransportState,
-  
+
   // DataChannel
   RTCDataChannel,
   RTCDataChannelState,
-  
+
   // SDP
   RTCSessionDescription,
   RTCSdpType,
-  
+
   // PeerConnection
   RTCPeerConnection,
   RTCSignalingState,
+  RTCIceGatheringState,
   RTCPeerConnectionState,
-  
+
   // Version
-  version: require('../package.json').version
+  version: require('../package.json').version,
 };

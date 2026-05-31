@@ -43,9 +43,12 @@ function candidatePriority(type, localPref = 65535, componentId = 1) {
 }
 
 /**
- * Parse a STUN/TURN server URL: (stun|turn|turns):host[:port][?transport=...]
+ * Parse a STUN/TURN server URL: (stun|turn|turns):host[:port][?key=val&...].
+ * Query parameters are returned in `params`; a flag without a value (e.g.
+ * "?secure") is recorded as `true`, an empty value ("?transport=") as "".
  * @param {string} url
- * @returns {{scheme:string, host:string, port:number, transport:string}|null}
+ * @returns {{scheme:string, protocol:string, host:string, port:number,
+ *            transport:string, params:Object}|null} null if the URL is invalid.
  */
 function parseIceServerUrl(url) {
   const m = url.match(/^(stuns?|turns?):\/?\/?([^:?]+):?(\d+)?(?:\?(.+))?$/);
@@ -53,13 +56,22 @@ function parseIceServerUrl(url) {
   const scheme = m[1];
   const host = m[2];
   const params = {};
-  if (m[4]) for (const kv of m[4].split('&')) { const [k, v] = kv.split('='); params[k] = v; }
+  if (m[4]) {
+    for (const kv of m[4].split('&')) {
+      if (!kv) continue;
+      const eq = kv.indexOf('=');
+      if (eq === -1) params[kv] = true; // flag without a value
+      else params[kv.slice(0, eq)] = kv.slice(eq + 1); // value may be ""
+    }
+  }
   const defaultPort = scheme === 'turns' || scheme === 'stuns' ? 5349 : 3478;
   return {
     scheme,
+    protocol: scheme, // alias
     host,
     port: parseInt(m[3] || defaultPort, 10),
     transport: params.transport || 'udp',
+    params,
   };
 }
 

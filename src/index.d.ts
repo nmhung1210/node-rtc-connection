@@ -89,69 +89,7 @@ export class RTCIceCandidate {
   static isValid(candidateStr: string): boolean;
 }
 
-/**
- * RTCIceTransport - ICE transport layer
- */
-export enum RTCIceRole {
-  CONTROLLING = 'controlling',
-  CONTROLLED = 'controlled'
-}
-
-export enum RTCIceTransportState {
-  NEW = 'new',
-  CHECKING = 'checking',
-  CONNECTED = 'connected',
-  COMPLETED = 'completed',
-  DISCONNECTED = 'disconnected',
-  FAILED = 'failed',
-  CLOSED = 'closed'
-}
-
-export enum RTCIceGatheringState {
-  NEW = 'new',
-  GATHERING = 'gathering',
-  COMPLETE = 'complete'
-}
-
-export interface RTCIceParameters {
-  usernameFragment: string;
-  password: string;
-}
-
-export interface RTCIceCandidatePair {
-  local: RTCIceCandidate;
-  remote: RTCIceCandidate;
-}
-
-export interface RTCIceGatherOptions {
-  gatherPolicy?: 'all' | 'relay';
-  iceServers?: Array<any>;
-}
-
 import { EventEmitter } from 'events';
-
-export class RTCIceTransport extends EventEmitter {
-  constructor();
-  readonly role: string | null;
-  readonly state: string;
-  readonly gatheringState: string;
-  getLocalCandidates(): RTCIceCandidate[];
-  getRemoteCandidates(): RTCIceCandidate[];
-  getSelectedCandidatePair(): RTCIceCandidatePair | null;
-  getLocalParameters(): RTCIceParameters | null;
-  getRemoteParameters(): RTCIceParameters | null;
-  gather(options?: RTCIceGatherOptions): void;
-  start(remoteParameters: RTCIceParameters, role: string): void;
-  stop(): void;
-  addRemoteCandidate(candidate: RTCIceCandidate): void;
-  isClosed(): boolean;
-  isStarted(): boolean;
-  
-  on(event: 'statechange', listener: () => void): this;
-  on(event: 'gatheringstatechange', listener: () => void): this;
-  on(event: 'selectedcandidatepairchange', listener: () => void): this;
-  on(event: 'icecandidate', listener: (candidate: RTCIceCandidate) => void): this;
-}
 
 /**
  * RTCCertificate - DTLS certificate
@@ -190,55 +128,6 @@ export class RTCCertificate {
   static generateCertificate(options?: RTCCertificateOptions): Promise<RTCCertificate>;
   static fromPEM(pemPrivateKey: string, pemCertificate: string, expires?: number): RTCCertificate;
   static isSupportedKeyParams(keyParams: RTCKeyParams): boolean;
-}
-
-/**
- * RTCDtlsTransport - DTLS transport layer
- */
-export enum RTCDtlsTransportState {
-  NEW = 'new',
-  CONNECTING = 'connecting',
-  CONNECTED = 'connected',
-  CLOSED = 'closed',
-  FAILED = 'failed'
-}
-
-export class RTCDtlsTransport extends EventEmitter {
-  constructor(iceTransport: RTCIceTransport);
-  readonly iceTransport: RTCIceTransport;
-  readonly state: string;
-  getRemoteCertificates(): ArrayBuffer[];
-  close(): void;
-  isClosed(): boolean;
-  
-  on(event: 'statechange', listener: () => void): this;
-  on(event: 'error', listener: (error: Error) => void): this;
-}
-
-/**
- * RTCSctpTransport - SCTP transport layer
- */
-export enum RTCSctpTransportState {
-  CONNECTING = 'connecting',
-  CONNECTED = 'connected',
-  CLOSED = 'closed'
-}
-
-export interface RTCSctpTransportOptions {
-  maxMessageSize?: number;
-  maxChannels?: number;
-}
-
-export class RTCSctpTransport extends EventEmitter {
-  constructor(dtlsTransport: RTCDtlsTransport, options?: RTCSctpTransportOptions);
-  readonly transport: RTCDtlsTransport;
-  readonly state: string;
-  readonly maxMessageSize: number;
-  readonly maxChannels: number | null;
-  close(): void;
-  isClosed(): boolean;
-  
-  on(event: 'statechange', listener: () => void): this;
 }
 
 /**
@@ -372,7 +261,8 @@ export class RTCPeerConnection extends EventEmitter {
   readonly currentRemoteDescription: RTCSessionDescription | null;
   readonly pendingRemoteDescription: RTCSessionDescription | null;
   readonly canTrickleIceCandidates: boolean;
-  readonly sctp: RTCSctpTransport | null;
+  /** The underlying SCTP association once established (internal shape), or null. */
+  readonly sctp: any | null;
   
   createDataChannel(label: string, options?: RTCDataChannelInit): RTCDataChannel;
   createOffer(options?: any): Promise<RTCSessionDescription>;
