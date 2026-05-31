@@ -88,13 +88,13 @@ class RTCError extends Error {
    * Specific error category.
    * @private {string}
    */
-  private readonly _errorDetail: string;
+  #errorDetail: string;
 
-  private readonly _sdpLineNumber: number | null;
-  private readonly _httpRequestStatusCode: number | null;
-  private readonly _sctpCauseCode: number | null;
-  private readonly _receivedAlert: number | null;
-  private readonly _sentAlert: number | null;
+  #sdpLineNumber: number | null;
+  #httpRequestStatusCode: number | null;
+  #sctpCauseCode: number | null;
+  #receivedAlert: number | null;
+  #sentAlert: number | null;
 
   /**
    * Creates a new RTCError.
@@ -124,14 +124,14 @@ class RTCError extends Error {
       throw new TypeError('errorDetail must be a string');
     }
 
-    this._errorDetail = errorDetail;
+    this.#errorDetail = errorDetail;
 
     // Optional numeric fields with validation
-    this._sdpLineNumber = this._validateInteger(init.sdpLineNumber, 'sdpLineNumber');
-    this._httpRequestStatusCode = this._validateInteger(init.httpRequestStatusCode, 'httpRequestStatusCode');
-    this._sctpCauseCode = this._validateInteger(init.sctpCauseCode, 'sctpCauseCode');
-    this._receivedAlert = this._validateUnsignedInteger(init.receivedAlert, 'receivedAlert');
-    this._sentAlert = this._validateUnsignedInteger(init.sentAlert, 'sentAlert');
+    this.#sdpLineNumber = this.#validateInteger(init.sdpLineNumber, 'sdpLineNumber');
+    this.#httpRequestStatusCode = this.#validateInteger(init.httpRequestStatusCode, 'httpRequestStatusCode');
+    this.#sctpCauseCode = this.#validateInteger(init.sctpCauseCode, 'sctpCauseCode');
+    this.#receivedAlert = this.#validateUnsignedInteger(init.receivedAlert, 'receivedAlert');
+    this.#sentAlert = this.#validateUnsignedInteger(init.sentAlert, 'sentAlert');
   }
 
   /**
@@ -142,7 +142,7 @@ class RTCError extends Error {
    * @returns {number|null}
    * @throws {TypeError} If value is not an integer
    */
-  private _validateInteger(value: number | null | undefined, fieldName: string): number | null {
+  #validateInteger(value: number | null | undefined, fieldName: string): number | null {
     if (value === undefined || value === null) {
       return null;
     }
@@ -161,7 +161,7 @@ class RTCError extends Error {
    * @returns {number|null}
    * @throws {TypeError} If value is not an unsigned integer
    */
-  private _validateUnsignedInteger(value: number | null | undefined, fieldName: string): number | null {
+  #validateUnsignedInteger(value: number | null | undefined, fieldName: string): number | null {
     if (value === undefined || value === null) {
       return null;
     }
@@ -177,7 +177,7 @@ class RTCError extends Error {
    * @type {string}
    */
   get errorDetail(): string {
-    return this._errorDetail;
+    return this.#errorDetail;
   }
 
   /**
@@ -185,7 +185,7 @@ class RTCError extends Error {
    * @type {number|null}
    */
   get sdpLineNumber(): number | null {
-    return this._sdpLineNumber;
+    return this.#sdpLineNumber;
   }
 
   /**
@@ -193,7 +193,7 @@ class RTCError extends Error {
    * @type {number|null}
    */
   get httpRequestStatusCode(): number | null {
-    return this._httpRequestStatusCode;
+    return this.#httpRequestStatusCode;
   }
 
   /**
@@ -201,7 +201,7 @@ class RTCError extends Error {
    * @type {number|null}
    */
   get sctpCauseCode(): number | null {
-    return this._sctpCauseCode;
+    return this.#sctpCauseCode;
   }
 
   /**
@@ -209,7 +209,7 @@ class RTCError extends Error {
    * @type {number|null}
    */
   get receivedAlert(): number | null {
-    return this._receivedAlert;
+    return this.#receivedAlert;
   }
 
   /**
@@ -217,7 +217,7 @@ class RTCError extends Error {
    * @type {number|null}
    */
   get sentAlert(): number | null {
-    return this._sentAlert;
+    return this.#sentAlert;
   }
 
   /**
@@ -228,23 +228,23 @@ class RTCError extends Error {
     const json: RTCErrorJSON = {
       name: this.name,
       message: this.message,
-      errorDetail: this._errorDetail,
+      errorDetail: this.#errorDetail,
     };
 
-    if (this._sdpLineNumber !== null) {
-      json.sdpLineNumber = this._sdpLineNumber;
+    if (this.#sdpLineNumber !== null) {
+      json.sdpLineNumber = this.#sdpLineNumber;
     }
-    if (this._httpRequestStatusCode !== null) {
-      json.httpRequestStatusCode = this._httpRequestStatusCode;
+    if (this.#httpRequestStatusCode !== null) {
+      json.httpRequestStatusCode = this.#httpRequestStatusCode;
     }
-    if (this._sctpCauseCode !== null) {
-      json.sctpCauseCode = this._sctpCauseCode;
+    if (this.#sctpCauseCode !== null) {
+      json.sctpCauseCode = this.#sctpCauseCode;
     }
-    if (this._receivedAlert !== null) {
-      json.receivedAlert = this._receivedAlert;
+    if (this.#receivedAlert !== null) {
+      json.receivedAlert = this.#receivedAlert;
     }
-    if (this._sentAlert !== null) {
-      json.sentAlert = this._sentAlert;
+    if (this.#sentAlert !== null) {
+      json.sentAlert = this.#sentAlert;
     }
 
     return json;

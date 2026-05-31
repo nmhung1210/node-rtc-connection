@@ -163,3 +163,9 @@ not exercised by the client-side relay path).
 - `dist/` is generated (`tsc` + rollup) — never edit by hand; rebuild with
   `npm run build`.
 - All protocol layers extend `EventEmitter` and communicate via events.
+- Class internals use ECMAScript hard-private `#` fields/methods (not the TS
+  `private` keyword or `_` prefix). The one deliberate cross-class seam is
+  `RTCDataChannel.control(channel)`, which returns a typed `RTCDataChannelController`
+  so the SCTP data-channel manager can drive a channel without touching its
+  `#` state. Note: `#` fields are subject to `noUnusedLocals`, so dead private
+  fields fail the build (a feature — it catches write-only state).

@@ -174,22 +174,22 @@ function parseIceServerUrl(url: string): ParsedIceServerUrl | null {
  */
 class HostTransport implements Transport {
   kind: string;
-  socket: dgram.Socket;
+  #socket: dgram.Socket;
   onMessage: ((msg: Buffer, rinfo: RemoteInfo) => void) | null;
 
   constructor(socket: dgram.Socket) {
     this.kind = 'host';
-    this.socket = socket;
+    this.#socket = socket;
     this.onMessage = null;
     socket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
       if (this.onMessage) this.onMessage(msg, { address: rinfo.address, port: rinfo.port });
     });
   }
   send(buf: Buffer, address: string, port: number): void {
-    this.socket.send(buf, port, address);
+    this.#socket.send(buf, port, address);
   }
   close(): void {
-    try { this.socket.close(); } catch (_) {}
+    try { this.#socket.close(); } catch (_) {}
   }
 }
 
@@ -200,33 +200,33 @@ class HostTransport implements Transport {
  */
 class RelayTransport implements Transport {
   kind: string;
-  client: STUNClient;
+  #client: STUNClient;
   onMessage: ((msg: Buffer, rinfo: RemoteInfo) => void) | null;
-  _permitted: Set<string>;
+  #permitted: Set<string>;
 
   constructor(turnClient: STUNClient) {
     this.kind = 'relay';
-    this.client = turnClient;
+    this.#client = turnClient;
     this.onMessage = null;
-    this._permitted = new Set();
+    this.#permitted = new Set();
     turnClient.on('data', (data: Buffer, peer: { address: string; port: number }) => {
       if (this.onMessage) this.onMessage(data, { address: peer.address, port: peer.port });
     });
   }
   send(buf: Buffer, address: string, port: number): void {
     const key = `${address}:${port}`;
-    if (!this._permitted.has(key)) {
-      this._permitted.add(key);
+    if (!this.#permitted.has(key)) {
+      this.#permitted.add(key);
       // Install permission, then send. Subsequent sends skip the permission.
-      this.client.createPermission(address)
-        .then(() => this.client.sendIndication(address, port, buf))
+      this.#client.createPermission(address)
+        .then(() => this.#client.sendIndication(address, port, buf))
         .catch(() => {});
     } else {
-      this.client.sendIndication(address, port, buf).catch(() => {});
+      this.#client.sendIndication(address, port, buf).catch(() => {});
     }
   }
   close(): void {
-    try { this.client.close(); } catch (_) {}
+    try { this.#client.close(); } catch (_) {}
   }
 }
 
@@ -237,18 +237,17 @@ class IceAgent extends EventEmitter {
   remoteUfrag: string | null;
   remotePwd: string | null;
 
-  _tieBreaker: Buffer;
-  _transports: Transport[];
-  _localCandidates: LocalCandidate[];
-  _remoteCandidates: RemoteCandidate[];
-  _pairs: CandidatePair[];
-  _selected: CandidatePair | null;
-  _closed: boolean;
-  _checkTimer: NodeJS.Timeout | null;
-  _timeoutTimer: NodeJS.Timeout | null;
-  _connected: boolean;
-  _pendingChecks: Map<string, CandidatePair>;
-  _validPair?: CandidatePair;
+  #tieBreaker: Buffer;
+  #transports: Transport[];
+  #localCandidates: LocalCandidate[];
+  #remoteCandidates: RemoteCandidate[];
+  #pairs: CandidatePair[];
+  #selected: CandidatePair | null;
+  #closed: boolean;
+  #checkTimer: NodeJS.Timeout | null;
+  #timeoutTimer: NodeJS.Timeout | null;
+  #connected: boolean;
+  #pendingChecks: Map<string, CandidatePair>;
 
   /**
    * @param {Object} opts
@@ -264,17 +263,17 @@ class IceAgent extends EventEmitter {
     this.remoteUfrag = null;
     this.remotePwd = null;
 
-    this._tieBreaker = crypto.randomBytes(8);
-    this._transports = []; // HostTransport | RelayTransport
-    this._localCandidates = [];
-    this._remoteCandidates = [];
-    this._pairs = [];
-    this._selected = null;
-    this._closed = false;
-    this._checkTimer = null;
-    this._timeoutTimer = null;
-    this._connected = false;
-    this._pendingChecks = new Map(); // txid hex -> pair
+    this.#tieBreaker = crypto.randomBytes(8);
+    this.#transports = []; // HostTransport | RelayTransport
+    this.#localCandidates = [];
+    this.#remoteCandidates = [];
+    this.#pairs = [];
+    this.#selected = null;
+    this.#closed = false;
+    this.#checkTimer = null;
+    this.#timeoutTimer = null;
+    this.#connected = false;
+    this.#pendingChecks = new Map(); // txid hex -> pair
   }
 
   /**
@@ -288,7 +287,7 @@ class IceAgent extends EventEmitter {
     const iceServers = opts.iceServers || [];
     const relayOnly = opts.iceTransportPolicy === 'relay';
 
-    const hostEntries = await this._gatherHosts();
+    const hostEntries = await this.#gatherHosts();
 
     // Server-reflexive + relay candidates need a host socket to originate from.
     for (const server of iceServers) {
@@ -298,9 +297,9 @@ class IceAgent extends EventEmitter {
         if (!parsed || parsed.transport !== 'udp') continue; // UDP only for now
         try {
           if (parsed.scheme === 'stun' && !relayOnly) {
-            await this._gatherSrflx(parsed, hostEntries[0]);
+            await this.#gatherSrflx(parsed, hostEntries[0]);
           } else if (parsed.scheme === 'turn' || parsed.scheme === 'turns') {
-            await this._gatherRelay(parsed, server);
+            await this.#gatherRelay(parsed, server);
           }
         } catch (err) {
           // A failed server must not abort gathering; just skip it.
@@ -311,14 +310,14 @@ class IceAgent extends EventEmitter {
 
     if (relayOnly) {
       // Drop host/srflx candidates and their transports from the working set.
-      this._localCandidates = this._localCandidates.filter((c) => c.type === 'relay');
+      this.#localCandidates = this.#localCandidates.filter((c) => c.type === 'relay');
     }
 
     this.emit('gatheringcomplete');
   }
 
   /** Bind one UDP socket per non-internal IPv4 interface; emit host candidates. */
-  async _gatherHosts(): Promise<HostEntry[]> {
+  async #gatherHosts(): Promise<HostEntry[]> {
     const ifaces = os.networkInterfaces();
     const addrs: string[] = [];
     for (const list of Object.values(ifaces)) {
@@ -331,34 +330,34 @@ class IceAgent extends EventEmitter {
 
     const entries: HostEntry[] = [];
     for (const address of addrs) {
-      entries.push(await this._bindHost(address));
+      entries.push(await this.#bindHost(address));
     }
     return entries;
   }
 
-  _bindHost(address: string): Promise<HostEntry> {
+  #bindHost(address: string): Promise<HostEntry> {
     return new Promise((resolve, _reject) => {
       const socket = dgram.createSocket('udp4');
       socket.on('error', (err: Error) => this.emit('error', err));
       socket.bind(0, address, () => {
         const { port } = socket.address();
         const transport = new HostTransport(socket);
-        transport.onMessage = (msg, rinfo) => this._onDatagram(transport, msg, rinfo);
-        this._transports.push(transport);
-        const cand = this._addLocalCandidate('host', address, port, transport);
+        transport.onMessage = (msg, rinfo) => this.#onDatagram(transport, msg, rinfo);
+        this.#transports.push(transport);
+        const cand = this.#addLocalCandidate('host', address, port, transport);
         resolve({ socket, address, port, transport, candidate: cand });
       });
     });
   }
 
   /** Discover the server-reflexive address via a STUN binding request. */
-  async _gatherSrflx(parsed: ParsedIceServerUrl, hostEntry: HostEntry | undefined): Promise<void> {
+  async #gatherSrflx(parsed: ParsedIceServerUrl, hostEntry: HostEntry | undefined): Promise<void> {
     if (!hostEntry) return;
     const stun = new STUNClient({ server: parsed.host, port: parsed.port });
     try {
       const addr = await stun.getReflexiveAddress() as { address: string; port: number };
       // srflx is reached through the host socket; reuse its transport.
-      this._addLocalCandidate('srflx', addr.address, addr.port, hostEntry.transport, {
+      this.#addLocalCandidate('srflx', addr.address, addr.port, hostEntry.transport, {
         relatedAddress: hostEntry.address, relatedPort: hostEntry.port,
       });
     } finally {
@@ -367,7 +366,7 @@ class IceAgent extends EventEmitter {
   }
 
   /** Allocate a TURN relay and expose it as a relay candidate + transport. */
-  async _gatherRelay(parsed: ParsedIceServerUrl, server: IceServer): Promise<void> {
+  async #gatherRelay(parsed: ParsedIceServerUrl, server: IceServer): Promise<void> {
     if (!server.username || !server.credential) {
       throw new Error('TURN server requires username and credential');
     }
@@ -380,14 +379,14 @@ class IceAgent extends EventEmitter {
     });
     const alloc = await turn.allocateRelay(600) as { relayedAddress: string; relayedPort: number };
     const transport = new RelayTransport(turn);
-    transport.onMessage = (msg, rinfo) => this._onDatagram(transport, msg, rinfo);
-    this._transports.push(transport);
-    this._addLocalCandidate('relay', alloc.relayedAddress, alloc.relayedPort, transport, {
+    transport.onMessage = (msg, rinfo) => this.#onDatagram(transport, msg, rinfo);
+    this.#transports.push(transport);
+    this.#addLocalCandidate('relay', alloc.relayedAddress, alloc.relayedPort, transport, {
       relatedAddress: parsed.host, relatedPort: parsed.port,
     });
   }
 
-  _addLocalCandidate(
+  #addLocalCandidate(
     type: string,
     address: string,
     port: number,
@@ -402,13 +401,13 @@ class IceAgent extends EventEmitter {
       sdp += ` raddr ${extra.relatedAddress} rport ${extra.relatedPort}`;
     }
     const cand: LocalCandidate = { foundation, component: 1, protocol: 'udp', priority, address, port, type, transport, sdp };
-    this._localCandidates.push(cand);
+    this.#localCandidates.push(cand);
     this.emit('candidate', cand);
     return cand;
   }
 
   getLocalCandidates(): LocalCandidate[] {
-    return this._localCandidates.slice();
+    return this.#localCandidates.slice();
   }
 
   /** Set remote ICE credentials (from the peer's SDP). */
@@ -428,54 +427,54 @@ class IceAgent extends EventEmitter {
     // triggers failing DNS lookups. Skip them — connectivity still succeeds via
     // the peer-reflexive candidate we learn from the browser's inbound checks.
     if (typeof cand.address === 'string' && cand.address.endsWith('.local')) return;
-    this._remoteCandidates.push(cand);
-    this._formPairs();
-    if (!this._checkTimer && this.remotePwd) this._startChecks();
+    this.#remoteCandidates.push(cand);
+    this.#formPairs();
+    if (!this.#checkTimer && this.remotePwd) this.#startChecks();
   }
 
   /** Begin connectivity checks (call once remote creds + candidates exist). */
   start(): void {
-    if (this.remotePwd && this._remoteCandidates.length > 0) {
-      this._startChecks();
+    if (this.remotePwd && this.#remoteCandidates.length > 0) {
+      this.#startChecks();
     }
   }
 
-  _formPairs(): void {
-    for (const local of this._localCandidates) {
-      for (const remote of this._remoteCandidates) {
+  #formPairs(): void {
+    for (const local of this.#localCandidates) {
+      for (const remote of this.#remoteCandidates) {
         const key = `${local.type}:${local.address}:${local.port}->${remote.address}:${remote.port}`;
-        if (this._pairs.find((p) => p.key === key)) continue;
-        this._pairs.push({ key, local, remote, state: 'frozen', nominated: false });
+        if (this.#pairs.find((p) => p.key === key)) continue;
+        this.#pairs.push({ key, local, remote, state: 'frozen', nominated: false });
       }
     }
   }
 
-  _startChecks(): void {
-    if (this._checkTimer || this._closed) return;
-    this._checkTimer = setInterval(() => this._tick(), CHECK_INTERVAL_MS);
-    if (this._checkTimer.unref) this._checkTimer.unref();
-    this._timeoutTimer = setTimeout(() => {
-      if (!this._connected) this.emit('failed');
-      this._stopChecks();
+  #startChecks(): void {
+    if (this.#checkTimer || this.#closed) return;
+    this.#checkTimer = setInterval(() => this.#tick(), CHECK_INTERVAL_MS);
+    if (this.#checkTimer.unref) this.#checkTimer.unref();
+    this.#timeoutTimer = setTimeout(() => {
+      if (!this.#connected) this.emit('failed');
+      this.#stopChecks();
     }, CHECK_TIMEOUT_MS);
-    if (this._timeoutTimer.unref) this._timeoutTimer.unref();
-    this._tick();
+    if (this.#timeoutTimer.unref) this.#timeoutTimer.unref();
+    this.#tick();
   }
 
-  _stopChecks(): void {
-    if (this._checkTimer) { clearInterval(this._checkTimer); this._checkTimer = null; }
-    if (this._timeoutTimer) { clearTimeout(this._timeoutTimer); this._timeoutTimer = null; }
+  #stopChecks(): void {
+    if (this.#checkTimer) { clearInterval(this.#checkTimer); this.#checkTimer = null; }
+    if (this.#timeoutTimer) { clearTimeout(this.#timeoutTimer); this.#timeoutTimer = null; }
   }
 
-  _tick(): void {
-    if (this._closed) return;
-    for (const pair of this._pairs) {
+  #tick(): void {
+    if (this.#closed) return;
+    for (const pair of this.#pairs) {
       if (pair.state === 'succeeded') continue;
-      this._sendCheck(pair);
+      this.#sendCheck(pair);
     }
   }
 
-  _sendCheck(pair: CandidatePair): void {
+  #sendCheck(pair: CandidatePair): void {
     const txid = crypto.randomBytes(12);
     const username = `${this.remoteUfrag}:${this.localUfrag}`;
     const builder = new S.StunMessageBuilder(S.MSG_TYPE.BINDING_REQUEST, txid)
@@ -483,40 +482,40 @@ class IceAgent extends EventEmitter {
       .addPriority(pair.local.priority!);
 
     if (this.role === 'controlling') {
-      builder.addIceControlling(this._tieBreaker);
+      builder.addIceControlling(this.#tieBreaker);
       builder.addUseCandidate(); // aggressive nomination
     } else {
-      builder.addIceControlled(this._tieBreaker);
+      builder.addIceControlled(this.#tieBreaker);
     }
 
     const msg = builder.build(this.remotePwd ?? undefined);
-    this._pendingChecks.set(txid.toString('hex'), pair);
+    this.#pendingChecks.set(txid.toString('hex'), pair);
     pair.state = 'in-progress';
     pair.local.transport.send(msg, pair.remote.address, pair.remote.port);
   }
 
-  _onDatagram(transport: Transport, msg: Buffer, rinfo: RemoteInfo): void {
+  #onDatagram(transport: Transport, msg: Buffer, rinfo: RemoteInfo): void {
     if (msg.length === 0) return;
     const b0 = msg[0]!;
     // RFC 7983 demux: 0-3 => STUN, 20-63 => DTLS, else ignore.
     if (b0 <= 3) {
-      this._onStun(transport, msg, rinfo);
+      this.#onStun(transport, msg, rinfo);
     } else {
       this.emit('data', msg, { transport, address: rinfo.address, port: rinfo.port });
     }
   }
 
-  _onStun(transport: Transport, msg: Buffer, rinfo: RemoteInfo): void {
+  #onStun(transport: Transport, msg: Buffer, rinfo: RemoteInfo): void {
     const parsed = S.parse(msg);
     if (!parsed) return;
     if (parsed.type === S.MSG_TYPE.BINDING_REQUEST) {
-      this._handleBindingRequest(transport, parsed, rinfo);
+      this.#handleBindingRequest(transport, parsed, rinfo);
     } else if (parsed.type === S.MSG_TYPE.BINDING_SUCCESS) {
-      this._handleBindingSuccess(transport, parsed, rinfo);
+      this.#handleBindingSuccess(transport, parsed, rinfo);
     }
   }
 
-  _handleBindingRequest(transport: Transport, parsed: S.ParsedStunMessage, rinfo: RemoteInfo): void {
+  #handleBindingRequest(transport: Transport, parsed: S.ParsedStunMessage, rinfo: RemoteInfo): void {
     // Verify MESSAGE-INTEGRITY with our local password (peer keyed it with our pwd).
     if (this.localPwd && !S.verifyIntegrity(parsed.raw, this.localPwd)) {
       return; // drop unauthenticated checks
@@ -528,46 +527,46 @@ class IceAgent extends EventEmitter {
     transport.send(resp, rinfo.address, rinfo.port);
 
     // Learn a peer-reflexive remote candidate if unknown.
-    const known = this._remoteCandidates.find((c) => c.address === rinfo.address && c.port === rinfo.port);
+    const known = this.#remoteCandidates.find((c) => c.address === rinfo.address && c.port === rinfo.port);
     if (!known) {
       this.addRemoteCandidate({ address: rinfo.address, port: rinfo.port, type: 'prflx', priority: 0 });
     }
 
     const useCandidate = parsed.attrs.has(S.ATTR.USE_CANDIDATE);
-    const pair = this._findPair(transport, rinfo);
+    const pair = this.#findPair(transport, rinfo);
 
     if (useCandidate && this.role === 'controlled') {
-      this._select(pair || this._syntheticPair(transport, rinfo));
+      this.#select(pair || this.#syntheticPair(transport, rinfo));
     }
   }
 
-  _handleBindingSuccess(_transport: Transport, parsed: S.ParsedStunMessage, _rinfo: RemoteInfo): void {
-    const pair = this._pendingChecks.get(parsed.transactionId.toString('hex'));
+  #handleBindingSuccess(_transport: Transport, parsed: S.ParsedStunMessage, _rinfo: RemoteInfo): void {
+    const pair = this.#pendingChecks.get(parsed.transactionId.toString('hex'));
     if (!pair) return;
-    this._pendingChecks.delete(parsed.transactionId.toString('hex'));
+    this.#pendingChecks.delete(parsed.transactionId.toString('hex'));
     pair.state = 'succeeded';
 
     if (this.role === 'controlling') {
-      this._select(pair);
-    } else if (!this._selected) {
-      this._validPair = pair;
+      this.#select(pair);
     }
+    // Controlled agent: a successful check confirms the pair is valid, but the
+    // path is selected when the controlling peer sends USE-CANDIDATE.
   }
 
-  _findPair(transport: Transport, rinfo: RemoteInfo): CandidatePair | undefined {
-    return this._pairs.find((p) =>
+  #findPair(transport: Transport, rinfo: RemoteInfo): CandidatePair | undefined {
+    return this.#pairs.find((p) =>
       p.remote.address === rinfo.address && p.remote.port === rinfo.port && p.local.transport === transport);
   }
 
-  _syntheticPair(transport: Transport, rinfo: RemoteInfo): CandidatePair {
+  #syntheticPair(transport: Transport, rinfo: RemoteInfo): CandidatePair {
     return { local: { transport }, remote: { address: rinfo.address, port: rinfo.port } };
   }
 
-  _select(pair: CandidatePair | undefined): void {
-    if (this._selected || !pair) return;
-    this._selected = pair;
-    this._connected = true;
-    this._stopChecks();
+  #select(pair: CandidatePair | undefined): void {
+    if (this.#selected || !pair) return;
+    this.#selected = pair;
+    this.#connected = true;
+    this.#stopChecks();
     this.emit('selected', {
       transport: pair.local.transport,
       candidateType: pair.local.type,
@@ -582,27 +581,27 @@ class IceAgent extends EventEmitter {
    * @param {Buffer} data
    */
   send(data: Buffer): void {
-    if (!this._selected) throw new Error('ICE not connected');
-    this._selected.local.transport.send(data, this._selected.remote.address, this._selected.remote.port);
+    if (!this.#selected) throw new Error('ICE not connected');
+    this.#selected.local.transport.send(data, this.#selected.remote.address, this.#selected.remote.port);
   }
 
   getSelectedPair(): CandidatePair | null {
-    return this._selected;
+    return this.#selected;
   }
 
   /** Type of the selected local candidate ('host'|'srflx'|'relay'|'prflx'). */
   getSelectedCandidateType(): string | null | undefined {
-    return this._selected ? this._selected.local.type : null;
+    return this.#selected ? this.#selected.local.type : null;
   }
 
   close(): void {
-    if (this._closed) return;
-    this._closed = true;
-    this._stopChecks();
-    for (const t of this._transports) {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#stopChecks();
+    for (const t of this.#transports) {
       try { t.close(); } catch (_) {}
     }
-    this._transports = [];
+    this.#transports = [];
     this.emit('closed');
   }
 }

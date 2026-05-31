@@ -25,25 +25,25 @@ class ByteBufferQueue {
    * Total number of bytes available to read.
    * @private {number}
    */
-  private _size: number;
+  #size: number;
 
   /**
    * Double-ended queue of byte buffers.
    * Append() pushes to the back, ReadInto() consumes from the front.
    * @private {Buffer[]}
    */
-  private _buffers: Buffer[];
+  #buffers: Buffer[];
 
   /**
    * Offset from which to start reading the front buffer.
    * @private {number}
    */
-  private _frontBufferOffset: number;
+  #frontBufferOffset: number;
 
   constructor() {
-    this._size = 0;
-    this._buffers = [];
-    this._frontBufferOffset = 0;
+    this.#size = 0;
+    this.#buffers = [];
+    this.#frontBufferOffset = 0;
   }
 
   /**
@@ -51,7 +51,7 @@ class ByteBufferQueue {
    * @returns {number}
    */
   get size(): number {
-    return this._size;
+    return this.#size;
   }
 
   /**
@@ -59,7 +59,7 @@ class ByteBufferQueue {
    * @returns {boolean}
    */
   get empty(): boolean {
-    return this._size === 0;
+    return this.#size === 0;
   }
 
   /**
@@ -78,9 +78,9 @@ class ByteBufferQueue {
     let readAmount = 0;
     let outputOffset = 0;
 
-    while (outputOffset < bufferOut.length && this._buffers.length > 0) {
-      const frontBuffer = this._buffers[0]!;
-      const availableInFront = frontBuffer.length - this._frontBufferOffset;
+    while (outputOffset < bufferOut.length && this.#buffers.length > 0) {
+      const frontBuffer = this.#buffers[0]!;
+      const availableInFront = frontBuffer.length - this.#frontBufferOffset;
       const remainingOutput = bufferOut.length - outputOffset;
       const toCopy = Math.min(availableInFront, remainingOutput);
 
@@ -88,8 +88,8 @@ class ByteBufferQueue {
       frontBuffer.copy(
         bufferOut,
         outputOffset,
-        this._frontBufferOffset,
-        this._frontBufferOffset + toCopy
+        this.#frontBufferOffset,
+        this.#frontBufferOffset + toCopy
       );
 
       readAmount += toCopy;
@@ -97,16 +97,16 @@ class ByteBufferQueue {
 
       if (toCopy < availableInFront) {
         // Partial read, update offset
-        this._frontBufferOffset += toCopy;
+        this.#frontBufferOffset += toCopy;
       } else {
         // Consumed entire front buffer, remove it
-        this._buffers.shift();
-        this._frontBufferOffset = 0;
+        this.#buffers.shift();
+        this.#frontBufferOffset = 0;
       }
     }
 
-    this._size -= readAmount;
-    this._checkInvariants();
+    this.#size -= readAmount;
+    this.#checkInvariants();
     return readAmount;
   }
 
@@ -126,19 +126,19 @@ class ByteBufferQueue {
       return; // Ignore empty buffers
     }
 
-    this._size += buffer.length;
-    this._buffers.push(buffer);
-    this._checkInvariants();
+    this.#size += buffer.length;
+    this.#buffers.push(buffer);
+    this.#checkInvariants();
   }
 
   /**
    * Clears all stored buffers.
    */
   clear(): void {
-    this._buffers = [];
-    this._frontBufferOffset = 0;
-    this._size = 0;
-    this._checkInvariants();
+    this.#buffers = [];
+    this.#frontBufferOffset = 0;
+    this.#size = 0;
+    this.#checkInvariants();
   }
 
   /**
@@ -149,8 +149,8 @@ class ByteBufferQueue {
    * @throws {RangeError} If fewer than n bytes are available
    */
   read(n: number): Buffer {
-    if (n > this._size) {
-      throw new RangeError(`Cannot read ${n} bytes, only ${this._size} available`);
+    if (n > this.#size) {
+      throw new RangeError(`Cannot read ${n} bytes, only ${this.#size} available`);
     }
     if (n === 0) {
       return Buffer.allocUnsafe(0);
@@ -169,11 +169,11 @@ class ByteBufferQueue {
   /**
    * Peeks at data without consuming it.
    *
-   * @param {number} [n=this._size] - Number of bytes to peek
+   * @param {number} [n=this.#size] - Number of bytes to peek
    * @returns {Buffer} Buffer containing up to n bytes (not consumed)
    */
-  peek(n: number = this._size): Buffer {
-    const peekAmount = Math.min(n, this._size);
+  peek(n: number = this.#size): Buffer {
+    const peekAmount = Math.min(n, this.#size);
     if (peekAmount === 0) {
       return Buffer.allocUnsafe(0);
     }
@@ -181,10 +181,10 @@ class ByteBufferQueue {
     const result = Buffer.allocUnsafe(peekAmount);
     let written = 0;
     let bufferIndex = 0;
-    let offset = this._frontBufferOffset;
+    let offset = this.#frontBufferOffset;
 
-    while (written < peekAmount && bufferIndex < this._buffers.length) {
-      const buffer = this._buffers[bufferIndex]!;
+    while (written < peekAmount && bufferIndex < this.#buffers.length) {
+      const buffer = this.#buffers[bufferIndex]!;
       const available = buffer.length - offset;
       const toCopy = Math.min(available, peekAmount - written);
 
@@ -203,29 +203,29 @@ class ByteBufferQueue {
    * @private
    * @throws {Error} If invariants are violated
    */
-  private _checkInvariants(): void {
+  #checkInvariants(): void {
     if (process.env.NODE_ENV !== 'production') {
       let bufferSizeSum = 0;
-      for (const buffer of this._buffers) {
+      for (const buffer of this.#buffers) {
         if (buffer.length === 0) {
           throw new Error('Invariant violation: empty buffer in queue');
         }
         bufferSizeSum += buffer.length;
       }
 
-      const expectedSize = bufferSizeSum - this._frontBufferOffset;
-      if (this._size !== expectedSize) {
+      const expectedSize = bufferSizeSum - this.#frontBufferOffset;
+      if (this.#size !== expectedSize) {
         throw new Error(
-          `Invariant violation: size=${this._size}, expected=${expectedSize}`
+          `Invariant violation: size=${this.#size}, expected=${expectedSize}`
         );
       }
 
-      if (this._buffers.length === 0) {
-        if (this._frontBufferOffset !== 0) {
+      if (this.#buffers.length === 0) {
+        if (this.#frontBufferOffset !== 0) {
           throw new Error('Invariant violation: offset non-zero with empty queue');
         }
       } else {
-        if (this._frontBufferOffset >= this._buffers[0]!.length) {
+        if (this.#frontBufferOffset >= this.#buffers[0]!.length) {
           throw new Error('Invariant violation: offset >= front buffer size');
         }
       }

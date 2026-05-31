@@ -58,66 +58,66 @@ export const RTCPeerConnectionState = Object.freeze({
 });
 
 export class RTCPeerConnection extends EventEmitter {
-  private _configuration: RTCConfiguration;
-  private _signalingState: string;
-  private _iceGatheringState: string;
-  private _connectionState: string;
+  #configuration: RTCConfiguration;
+  #signalingState: string;
+  #iceGatheringState: string;
+  #connectionState: string;
 
-  private _localDescription: RTCSessionDescription | null;
-  private _remoteDescription: RTCSessionDescription | null;
+  #localDescription: RTCSessionDescription | null;
+  #remoteDescription: RTCSessionDescription | null;
 
-  private _certificate: RTCCertificate | null;
-  private _localIce: IceCredentials;
-  private _remoteIce: sdpUtils.IceParameters | null;
-  private _remoteFingerprints: Fingerprint[];
-  private _remoteSetup: string | null;
+  #certificate: RTCCertificate | null;
+  #localIce: IceCredentials;
+  #remoteIce: sdpUtils.IceParameters | null;
+  #remoteFingerprints: Fingerprint[];
+  #remoteSetup: string | null;
 
-  private _stack: TransportStack | null;
-  private _isOfferer: boolean;
-  private _isClosed: boolean;
+  #stack: TransportStack | null;
+  #isOfferer: boolean;
+  #isClosed: boolean;
 
-  private _pendingChannels: PendingChannel[];
-  private _channels: Set<RTCDataChannel>;
-  private _localCandidates: RTCIceCandidateInit[];
+  #pendingChannels: PendingChannel[];
+  #channels: Set<RTCDataChannel>;
+  #localCandidates: RTCIceCandidateInit[];
 
   constructor(configuration: RTCConfiguration = {}) {
     super();
-    this._configuration = configuration;
-    this._signalingState = RTCSignalingState.STABLE;
-    this._iceGatheringState = RTCIceGatheringState.NEW;
-    this._connectionState = RTCPeerConnectionState.NEW;
+    this.#configuration = configuration;
+    this.#signalingState = RTCSignalingState.STABLE;
+    this.#iceGatheringState = RTCIceGatheringState.NEW;
+    this.#connectionState = RTCPeerConnectionState.NEW;
 
-    this._localDescription = null;
-    this._remoteDescription = null;
+    this.#localDescription = null;
+    this.#remoteDescription = null;
 
-    this._certificate = null;
-    this._localIce = sdpUtils.generateIceCredentials();
-    this._remoteIce = null;
-    this._remoteFingerprints = [];
-    this._remoteSetup = null;
+    this.#certificate = null;
+    this.#localIce = sdpUtils.generateIceCredentials();
+    this.#remoteIce = null;
+    this.#remoteFingerprints = [];
+    this.#remoteSetup = null;
 
-    this._stack = null;
-    this._isOfferer = false;
-    this._isClosed = false;
+    this.#stack = null;
+    this.#isOfferer = false;
+    this.#isClosed = false;
 
     // Data channels created locally before the stack is ready are queued and
     // opened once SCTP is established.
-    this._pendingChannels = [];
-    this._channels = new Set();
-    this._localCandidates = [];
+    this.#pendingChannels = [];
+    this.#channels = new Set();
+    this.#localCandidates = [];
   }
 
   // ---- lazy init ----------------------------------------------------------
 
-  async _ensureCertificate(): Promise<RTCCertificate> {
-    if (!this._certificate) {
-      if (this._configuration.certificates && this._configuration.certificates[0]) {
-        this._certificate = this._configuration.certificates[0];
+  async #ensureCertificate(): Promise<RTCCertificate> {
+    if (!this.#certificate) {
+      if (this.#configuration.certificates && this.#configuration.certificates[0]) {
+        this.#certificate = this.#configuration.certificates[0];
       } else {
-        this._certificate = await RTCCertificate.generateCertificate();
+        this.#certificate = await RTCCertificate.generateCertificate();
       }
     }
-    return this._certificate;
+    return this.#certificate;
   }
 
   /**
@@ -125,10 +125,10 @@ export class RTCPeerConnection extends EventEmitter {
    * @param {'controlling'|'controlled'} iceRole
    * @param {'client'|'server'} dtlsRole
    */
-  _createStack(iceRole: 'controlling' | 'controlled', dtlsRole: 'client' | 'server'): TransportStack {
-    if (this._stack) return this._stack;
+  #createStack(iceRole: 'controlling' | 'controlled', dtlsRole: 'client' | 'server'): TransportStack {
+    if (this.#stack) return this.#stack;
 
-    const certificate = this._certificate;
+    const certificate = this.#certificate;
     if (!certificate) {
       throw new Error('Certificate not initialized');
     }
@@ -140,26 +140,26 @@ export class RTCPeerConnection extends EventEmitter {
     const stack = new TransportStack({
       iceRole,
       dtlsRole,
-      localUfrag: this._localIce.usernameFragment,
-      localPwd: this._localIce.password,
+      localUfrag: this.#localIce.usernameFragment,
+      localPwd: this.#localIce.password,
       certDer,
       privateKey: certificate.getPrivateKeyObject(),
-      verifyFingerprint: (fp: { algorithm: string; value: string }) => this._verifyRemoteFingerprint(fp),
+      verifyFingerprint: (fp: { algorithm: string; value: string }) => this.#verifyRemoteFingerprint(fp),
     });
 
     stack.on('candidate', (c: StackCandidate) => {
-      const init: RTCIceCandidateInit = { candidate: c.sdp, sdpMid: '0', sdpMLineIndex: 0, usernameFragment: this._localIce.usernameFragment };
-      this._localCandidates.push(init);
+      const init: RTCIceCandidateInit = { candidate: c.sdp, sdpMid: '0', sdpMLineIndex: 0, usernameFragment: this.#localIce.usernameFragment };
+      this.#localCandidates.push(init);
       this.emit('icecandidate', { candidate: init });
     });
 
-    stack.on('iceconnected', () => this._setConnectionState(RTCPeerConnectionState.CONNECTING));
-    stack.on('sctpconnected', () => this._setConnectionState(RTCPeerConnectionState.CONNECTED));
+    stack.on('iceconnected', () => this.#setConnectionState(RTCPeerConnectionState.CONNECTING));
+    stack.on('sctpconnected', () => this.#setConnectionState(RTCPeerConnectionState.CONNECTED));
     stack.on('error', (e: unknown) => {
       this.emit('error', e);
-      this._setConnectionState(RTCPeerConnectionState.FAILED);
+      this.#setConnectionState(RTCPeerConnectionState.FAILED);
     });
-    stack.on('close', () => this._setConnectionState(RTCPeerConnectionState.DISCONNECTED));
+    stack.on('close', () => this.#setConnectionState(RTCPeerConnectionState.DISCONNECTED));
 
     // Inbound (remotely-initiated) data channels.
     stack.on('datachannel-request', (info: OpenRequestInfo) => {
@@ -169,25 +169,25 @@ export class RTCPeerConnection extends EventEmitter {
         id: info.streamId,
       });
       stack.acceptChannel(channel, info);
-      this._channels.add(channel);
+      this.#channels.add(channel);
       this.emit('datachannel', { channel });
     });
 
     // Open any queued local channels when SCTP is ready.
     stack.on('ready', () => {
-      for (const { channel, init } of this._pendingChannels) {
+      for (const { channel, init } of this.#pendingChannels) {
         stack.openChannel(channel, init);
       }
-      this._pendingChannels = [];
+      this.#pendingChannels = [];
     });
 
-    this._stack = stack;
+    this.#stack = stack;
     return stack;
   }
 
-  _verifyRemoteFingerprint(fp: { algorithm: string; value: string }): boolean {
-    if (this._remoteFingerprints.length === 0) return true; // not yet known
-    return this._remoteFingerprints.some(
+  #verifyRemoteFingerprint(fp: { algorithm: string; value: string }): boolean {
+    if (this.#remoteFingerprints.length === 0) return true; // not yet known
+    return this.#remoteFingerprints.some(
       (rf) => rf.algorithm === fp.algorithm && rf.value.toUpperCase() === fp.value.toUpperCase()
     );
   }
@@ -195,9 +195,9 @@ export class RTCPeerConnection extends EventEmitter {
   // ---- data channels ------------------------------------------------------
 
   createDataChannel(label: string, options: RTCDataChannelInit = {}): RTCDataChannel {
-    if (this._isClosed) throw new Error('RTCPeerConnection is closed');
+    if (this.#isClosed) throw new Error('RTCPeerConnection is closed');
     const channel = new RTCDataChannel(label, options);
-    this._channels.add(channel);
+    this.#channels.add(channel);
 
     const init: RTCDataChannelInit = {
       ordered: options.ordered !== false,
@@ -207,27 +207,27 @@ export class RTCPeerConnection extends EventEmitter {
       negotiated: options.negotiated || false,
     };
 
-    if (this._stack && this._stack.isReady()) {
-      this._stack.openChannel(channel, init);
+    if (this.#stack && this.#stack.isReady()) {
+      this.#stack.openChannel(channel, init);
     } else {
-      this._pendingChannels.push({ channel, init });
+      this.#pendingChannels.push({ channel, init });
     }
 
-    setImmediate(() => { if (!this._isClosed) this.emit('negotiationneeded'); });
+    setImmediate(() => { if (!this.#isClosed) this.emit('negotiationneeded'); });
     return channel;
   }
 
   // ---- signaling ----------------------------------------------------------
 
   async createOffer(): Promise<RTCSessionDescription> {
-    if (this._isClosed) throw new Error('RTCPeerConnection is closed');
-    await this._ensureCertificate();
-    this._isOfferer = true;
+    if (this.#isClosed) throw new Error('RTCPeerConnection is closed');
+    await this.#ensureCertificate();
+    this.#isOfferer = true;
 
-    const fp = this._pickFingerprint();
+    const fp = this.#pickFingerprint();
     const sdp = sdpUtils.generateOffer({
-      iceUfrag: this._localIce.usernameFragment,
-      icePwd: this._localIce.password,
+      iceUfrag: this.#localIce.usernameFragment,
+      icePwd: this.#localIce.password,
       fingerprint: fp,
       setup: 'actpass',
       candidates: [],
@@ -236,17 +236,17 @@ export class RTCPeerConnection extends EventEmitter {
   }
 
   async createAnswer(): Promise<RTCSessionDescription> {
-    if (this._isClosed) throw new Error('RTCPeerConnection is closed');
-    if (!this._remoteDescription || this._remoteDescription.type !== 'offer') {
+    if (this.#isClosed) throw new Error('RTCPeerConnection is closed');
+    if (!this.#remoteDescription || this.#remoteDescription.type !== 'offer') {
       throw new Error('Cannot create answer without remote offer');
     }
-    await this._ensureCertificate();
+    await this.#ensureCertificate();
 
     // Answerer takes the active (DTLS client) role when offer is actpass.
-    const fp = this._pickFingerprint();
+    const fp = this.#pickFingerprint();
     const sdp = sdpUtils.generateAnswer({
-      iceUfrag: this._localIce.usernameFragment,
-      icePwd: this._localIce.password,
+      iceUfrag: this.#localIce.usernameFragment,
+      icePwd: this.#localIce.password,
       fingerprint: fp,
       setup: 'active',
       candidates: [],
@@ -254,8 +254,8 @@ export class RTCPeerConnection extends EventEmitter {
     return new RTCSessionDescription({ type: RTCSdpType.ANSWER, sdp });
   }
 
-  _pickFingerprint(): Fingerprint | undefined {
-    const certificate = this._certificate;
+  #pickFingerprint(): Fingerprint | undefined {
+    const certificate = this.#certificate;
     if (!certificate) {
       throw new Error('Certificate not initialized');
     }
@@ -264,67 +264,67 @@ export class RTCPeerConnection extends EventEmitter {
   }
 
   async setLocalDescription(description?: RTCSessionDescriptionInit | RTCSessionDescription): Promise<void> {
-    if (this._isClosed) throw new Error('RTCPeerConnection is closed');
+    if (this.#isClosed) throw new Error('RTCPeerConnection is closed');
     const desc: RTCSessionDescriptionInit | RTCSessionDescription = description
       ? description
-      : this._signalingState === RTCSignalingState.HAVE_REMOTE_OFFER
+      : this.#signalingState === RTCSignalingState.HAVE_REMOTE_OFFER
         ? await this.createAnswer()
         : await this.createOffer();
-    await this._ensureCertificate();
-    this._localDescription = new RTCSessionDescription({ type: desc.type ?? undefined, sdp: desc.sdp ?? undefined });
+    await this.#ensureCertificate();
+    this.#localDescription = new RTCSessionDescription({ type: desc.type ?? undefined, sdp: desc.sdp ?? undefined });
 
     if (desc.type === 'offer') {
-      this._signalingState = RTCSignalingState.HAVE_LOCAL_OFFER;
+      this.#signalingState = RTCSignalingState.HAVE_LOCAL_OFFER;
     } else if (desc.type === 'answer') {
-      this._signalingState = RTCSignalingState.STABLE;
+      this.#signalingState = RTCSignalingState.STABLE;
     }
 
     // Determine roles and bring up the stack so we start gathering immediately.
-    this._setupRolesAndStack(desc, /*local*/ true);
+    this.#setupRolesAndStack(desc, /*local*/ true);
 
-    this._iceGatheringState = RTCIceGatheringState.GATHERING;
+    this.#iceGatheringState = RTCIceGatheringState.GATHERING;
     this.emit('icegatheringstatechange');
-    if (this._stack) {
-      await this._stack.gather({
-        iceServers: this._configuration.iceServers || [],
-        iceTransportPolicy: this._configuration.iceTransportPolicy || 'all',
+    if (this.#stack) {
+      await this.#stack.gather({
+        iceServers: this.#configuration.iceServers || [],
+        iceTransportPolicy: this.#configuration.iceTransportPolicy || 'all',
       });
-      this._iceGatheringState = RTCIceGatheringState.COMPLETE;
+      this.#iceGatheringState = RTCIceGatheringState.COMPLETE;
       this.emit('icegatheringstatechange');
       // Signal end-of-candidates.
       this.emit('icecandidate', { candidate: null });
-      this._maybeStartChecks();
+      this.#maybeStartChecks();
     }
     this.emit('signalingstatechange');
   }
 
   async setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
-    if (this._isClosed) throw new Error('RTCPeerConnection is closed');
+    if (this.#isClosed) throw new Error('RTCPeerConnection is closed');
     if (!description || !description.sdp) throw new Error('Invalid session description');
-    await this._ensureCertificate();
+    await this.#ensureCertificate();
 
-    this._remoteDescription = new RTCSessionDescription(description);
+    this.#remoteDescription = new RTCSessionDescription(description);
     if (description.type === 'offer') {
-      this._signalingState = RTCSignalingState.HAVE_REMOTE_OFFER;
+      this.#signalingState = RTCSignalingState.HAVE_REMOTE_OFFER;
     } else if (description.type === 'answer') {
-      this._signalingState = RTCSignalingState.STABLE;
+      this.#signalingState = RTCSignalingState.STABLE;
     }
 
-    this._remoteIce = sdpUtils.parseIceParameters(description.sdp);
+    this.#remoteIce = sdpUtils.parseIceParameters(description.sdp);
     const dtls = sdpUtils.parseDtlsParameters(description.sdp);
-    this._remoteFingerprints = dtls.fingerprints;
-    this._remoteSetup = dtls.setup ?? null;
+    this.#remoteFingerprints = dtls.fingerprints;
+    this.#remoteSetup = dtls.setup ?? null;
 
-    this._setupRolesAndStack(description, /*local*/ false);
+    this.#setupRolesAndStack(description, /*local*/ false);
 
     // Apply remote credentials + any in-SDP candidates, then start checks.
-    if (this._stack && this._remoteIce.usernameFragment) {
-      this._stack.setRemote(this._remoteIce.usernameFragment, this._remoteIce.password ?? '');
+    if (this.#stack && this.#remoteIce.usernameFragment) {
+      this.#stack.setRemote(this.#remoteIce.usernameFragment, this.#remoteIce.password ?? '');
       for (const c of sdpUtils.parseCandidates(description.sdp)) {
-        this._stack.addRemoteCandidate(c);
+        this.#stack.addRemoteCandidate(c);
       }
     }
-    this._maybeStartChecks();
+    this.#maybeStartChecks();
     this.emit('signalingstatechange');
   }
 
@@ -333,92 +333,92 @@ export class RTCPeerConnection extends EventEmitter {
    * stack. Offerer is ICE-controlling. DTLS roles follow a=setup: the side that
    * ends up 'active' is the DTLS client.
    */
-  _setupRolesAndStack(_description: RTCSessionDescriptionInit | RTCSessionDescription, _isLocal: boolean): void {
-    if (this._stack) return;
+  #setupRolesAndStack(_description: RTCSessionDescriptionInit | RTCSessionDescription, _isLocal: boolean): void {
+    if (this.#stack) return;
 
-    const iceRole: 'controlling' | 'controlled' = this._isOfferer ? 'controlling' : 'controlled';
+    const iceRole: 'controlling' | 'controlled' = this.#isOfferer ? 'controlling' : 'controlled';
 
     // Determine our DTLS role.
     let dtlsRole: 'client' | 'server';
-    if (this._isOfferer) {
+    if (this.#isOfferer) {
       // We offered actpass; the answerer chooses. We learn it from their answer
       // (setup:active => they are client => we are server). Until we see the
       // answer we default to server (passive), which matches answerer=active.
-      if (this._remoteSetup === 'active') dtlsRole = 'server';
-      else if (this._remoteSetup === 'passive') dtlsRole = 'client';
+      if (this.#remoteSetup === 'active') dtlsRole = 'server';
+      else if (this.#remoteSetup === 'passive') dtlsRole = 'client';
       else dtlsRole = 'server';
     } else {
       // We are the answerer; we chose 'active' in createAnswer => DTLS client.
       dtlsRole = 'client';
     }
 
-    this._createStack(iceRole, dtlsRole);
+    this.#createStack(iceRole, dtlsRole);
   }
 
-  _maybeStartChecks(): void {
+  #maybeStartChecks(): void {
     // Once both local gathering started and remote creds exist, checks run.
-    if (this._stack && this._remoteIce && this._remoteIce.usernameFragment) {
-      this._stack.setRemote(this._remoteIce.usernameFragment, this._remoteIce.password ?? '');
+    if (this.#stack && this.#remoteIce && this.#remoteIce.usernameFragment) {
+      this.#stack.setRemote(this.#remoteIce.usernameFragment, this.#remoteIce.password ?? '');
     }
   }
 
   async addIceCandidate(candidate: RTCIceCandidateInit | string): Promise<void> {
-    if (this._isClosed) throw new Error('RTCPeerConnection is closed');
+    if (this.#isClosed) throw new Error('RTCPeerConnection is closed');
     if (!candidate || (typeof candidate !== 'string' && candidate.candidate === '')) {
       return; // end-of-candidates
     }
     const candidateStr = typeof candidate === 'string' ? candidate : (candidate.candidate || '');
     const parsed = sdpUtils.parseCandidateLine(candidateStr);
-    if (parsed && this._stack) {
-      this._stack.addRemoteCandidate(parsed);
+    if (parsed && this.#stack) {
+      this.#stack.addRemoteCandidate(parsed);
     }
   }
 
   // ---- state --------------------------------------------------------------
 
-  _setConnectionState(state: string): void {
-    if (this._connectionState !== state) {
-      this._connectionState = state;
+  #setConnectionState(state: string): void {
+    if (this.#connectionState !== state) {
+      this.#connectionState = state;
       this.emit('connectionstatechange');
       this.emit('iceconnectionstatechange');
     }
   }
 
-  getConfiguration(): RTCConfiguration { return { ...this._configuration }; }
+  getConfiguration(): RTCConfiguration { return { ...this.#configuration }; }
   setConfiguration(configuration: RTCConfiguration): void {
-    if (this._isClosed) throw new Error('RTCPeerConnection is closed');
-    this._configuration = { ...configuration };
+    if (this.#isClosed) throw new Error('RTCPeerConnection is closed');
+    this.#configuration = { ...configuration };
   }
 
   close(): void {
-    if (this._isClosed) return;
-    this._isClosed = true;
-    this._signalingState = RTCSignalingState.CLOSED;
-    for (const channel of this._channels) {
+    if (this.#isClosed) return;
+    this.#isClosed = true;
+    this.#signalingState = RTCSignalingState.CLOSED;
+    for (const channel of this.#channels) {
       try { channel.close(); } catch (_) { /* best-effort */ }
     }
-    if (this._stack) try { this._stack.close(); } catch (_) { /* best-effort */ }
-    this._setConnectionState(RTCPeerConnectionState.CLOSED);
+    if (this.#stack) try { this.#stack.close(); } catch (_) { /* best-effort */ }
+    this.#setConnectionState(RTCPeerConnectionState.CLOSED);
     this.emit('signalingstatechange');
   }
 
-  get signalingState(): string { return this._signalingState; }
-  get iceGatheringState(): string { return this._iceGatheringState; }
+  get signalingState(): string { return this.#signalingState; }
+  get iceGatheringState(): string { return this.#iceGatheringState; }
   get iceConnectionState(): string {
-    return this._connectionState === RTCPeerConnectionState.CONNECTED ? 'connected'
-      : this._connectionState === RTCPeerConnectionState.CONNECTING ? 'checking'
-      : this._connectionState === RTCPeerConnectionState.FAILED ? 'failed'
+    return this.#connectionState === RTCPeerConnectionState.CONNECTED ? 'connected'
+      : this.#connectionState === RTCPeerConnectionState.CONNECTING ? 'checking'
+      : this.#connectionState === RTCPeerConnectionState.FAILED ? 'failed'
       : 'new';
   }
-  get connectionState(): string { return this._connectionState; }
-  get localDescription(): RTCSessionDescription | null { return this._localDescription; }
-  get remoteDescription(): RTCSessionDescription | null { return this._remoteDescription; }
-  get currentLocalDescription(): RTCSessionDescription | null { return this._localDescription; }
-  get currentRemoteDescription(): RTCSessionDescription | null { return this._remoteDescription; }
-  get pendingLocalDescription(): RTCSessionDescription | null { return this._signalingState === RTCSignalingState.STABLE ? null : this._localDescription; }
-  get pendingRemoteDescription(): RTCSessionDescription | null { return this._signalingState === RTCSignalingState.STABLE ? null : this._remoteDescription; }
+  get connectionState(): string { return this.#connectionState; }
+  get localDescription(): RTCSessionDescription | null { return this.#localDescription; }
+  get remoteDescription(): RTCSessionDescription | null { return this.#remoteDescription; }
+  get currentLocalDescription(): RTCSessionDescription | null { return this.#localDescription; }
+  get currentRemoteDescription(): RTCSessionDescription | null { return this.#remoteDescription; }
+  get pendingLocalDescription(): RTCSessionDescription | null { return this.#signalingState === RTCSignalingState.STABLE ? null : this.#localDescription; }
+  get pendingRemoteDescription(): RTCSessionDescription | null { return this.#signalingState === RTCSignalingState.STABLE ? null : this.#remoteDescription; }
   get canTrickleIceCandidates(): boolean { return true; }
-  get sctp(): TransportStack['sctp'] { return this._stack ? this._stack.sctp : null; }
+  get sctp(): TransportStack['sctp'] { return this.#stack ? this.#stack.sctp : null; }
 }
 
 /** ICE candidate init shape (subset of the W3C dictionary). */

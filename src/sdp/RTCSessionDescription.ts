@@ -48,8 +48,8 @@ export interface RTCSessionDescriptionJSON {
  * });
  */
 export class RTCSessionDescription {
-  private _type: string | null;
-  private _sdp: string | null;
+  #type: string | null;
+  #sdp: string | null;
 
   /**
    * Create an RTCSessionDescription instance.
@@ -58,12 +58,12 @@ export class RTCSessionDescription {
    * @param {string} [init.sdp] - SDP string
    */
   constructor(init: RTCSessionDescriptionInit = {}) {
-    this._type = init.type || null;
-    this._sdp = init.sdp || null;
+    this.#type = init.type || null;
+    this.#sdp = init.sdp || null;
 
     // Validate type if provided
-    if (this._type && !Object.values(RTCSdpType).includes(this._type)) {
-      throw new TypeError(`Invalid SDP type: ${this._type}`);
+    if (this.#type && !Object.values(RTCSdpType).includes(this.#type)) {
+      throw new TypeError(`Invalid SDP type: ${this.#type}`);
     }
   }
 
@@ -72,7 +72,7 @@ export class RTCSessionDescription {
    * @returns {string|null} SDP type
    */
   get type(): string | null {
-    return this._type;
+    return this.#type;
   }
 
   /**
@@ -83,7 +83,7 @@ export class RTCSessionDescription {
     if (value && !Object.values(RTCSdpType).includes(value)) {
       throw new TypeError(`Invalid SDP type: ${value}`);
     }
-    this._type = value;
+    this.#type = value;
   }
 
   /**
@@ -91,7 +91,7 @@ export class RTCSessionDescription {
    * @returns {string|null} SDP string
    */
   get sdp(): string | null {
-    return this._sdp;
+    return this.#sdp;
   }
 
   /**
@@ -99,7 +99,7 @@ export class RTCSessionDescription {
    * @param {string} value - SDP string
    */
   set sdp(value: string | null) {
-    this._sdp = value;
+    this.#sdp = value;
   }
 
   /**
@@ -108,8 +108,8 @@ export class RTCSessionDescription {
    */
   toJSON(): RTCSessionDescriptionJSON {
     return {
-      type: this._type,
-      sdp: this._sdp
+      type: this.#type,
+      sdp: this.#sdp
     };
   }
 }

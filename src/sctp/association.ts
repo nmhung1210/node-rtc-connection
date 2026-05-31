@@ -83,26 +83,25 @@ class SctpAssociation extends EventEmitter {
   isClient: boolean;
   state: StateValue;
 
-  private _localPort: number;
-  private _remotePort: number;
+  #localPort: number;
+  #remotePort: number;
 
-  private _localTag: number;
-  private _remoteTag: number;
+  #localTag: number;
+  #remoteTag: number;
 
   // Transmit side.
-  private _localTSN: number;
-  private _nextSSN: Map<number, number>; // streamId -> next outbound stream sequence
-  private _sentQueue: Map<number, SentEntry>; // tsn -> { chunk } awaiting SACK
+  #localTSN: number;
+  #nextSSN: Map<number, number>; // streamId -> next outbound stream sequence
+  #sentQueue: Map<number, SentEntry>; // tsn -> { chunk } awaiting SACK
 
   // Receive side.
-  private _peerCumulativeTSN: number | null; // highest contiguous TSN received
-  private _receivedOutOfOrder: Map<number, C.ParsedDataBody>; // tsn -> dataChunk (gap storage)
-  private _fragments: Map<string, FragmentBuffer>; // streamId -> array of partial DATA payloads
+  #peerCumulativeTSN: number | null; // highest contiguous TSN received
+  #receivedOutOfOrder: Map<number, C.ParsedDataBody>; // tsn -> dataChunk (gap storage)
+  #fragments: Map<string, FragmentBuffer>; // streamId -> array of partial DATA payloads
 
-  _cookieEcho: Buffer | null; // pending cookie to (re)send
-  private _initTimer: ReturnType<typeof setTimeout> | null;
+  #initTimer: ReturnType<typeof setTimeout> | null;
 
-  private _cookieSecret?: Buffer;
+  #cookieSecret?: Buffer;
 
   /**
    * @param {Object} opts
@@ -113,31 +112,30 @@ class SctpAssociation extends EventEmitter {
     this.isClient = !!opts.isClient;
     this.state = STATE.CLOSED;
 
-    this._localPort = SCTP_PORT;
-    this._remotePort = SCTP_PORT;
+    this.#localPort = SCTP_PORT;
+    this.#remotePort = SCTP_PORT;
 
-    this._localTag = crypto.randomBytes(4).readUInt32BE(0) >>> 0 || 1;
-    this._remoteTag = 0;
+    this.#localTag = crypto.randomBytes(4).readUInt32BE(0) >>> 0 || 1;
+    this.#remoteTag = 0;
 
     // Transmit side.
-    this._localTSN = crypto.randomBytes(4).readUInt32BE(0) >>> 0;
-    this._nextSSN = new Map(); // streamId -> next outbound stream sequence
-    this._sentQueue = new Map(); // tsn -> { chunk } awaiting SACK
+    this.#localTSN = crypto.randomBytes(4).readUInt32BE(0) >>> 0;
+    this.#nextSSN = new Map(); // streamId -> next outbound stream sequence
+    this.#sentQueue = new Map(); // tsn -> { chunk } awaiting SACK
 
     // Receive side.
-    this._peerCumulativeTSN = null; // highest contiguous TSN received
-    this._receivedOutOfOrder = new Map(); // tsn -> dataChunk (gap storage)
-    this._fragments = new Map(); // streamId -> array of partial DATA payloads
+    this.#peerCumulativeTSN = null; // highest contiguous TSN received
+    this.#receivedOutOfOrder = new Map(); // tsn -> dataChunk (gap storage)
+    this.#fragments = new Map(); // streamId -> array of partial DATA payloads
 
-    this._cookieEcho = null; // pending cookie to (re)send
-    this._initTimer = null;
+    this.#initTimer = null;
   }
 
   /** Start the association (client sends INIT). */
   start(): void {
     if (this.state !== STATE.CLOSED) return;
     if (this.isClient) {
-      this._sendInit();
+      this.#sendInit();
       this.state = STATE.COOKIE_WAIT;
     }
     // Server waits for INIT.
@@ -145,8 +143,8 @@ class SctpAssociation extends EventEmitter {
 
   // ---- packet plumbing ----------------------------------------------------
 
-  private _emitPacket(verificationTag: number, chunks: Buffer[]): void {
-    const header = C.encodeCommonHeader(this._localPort, this._remotePort, verificationTag);
+  #emitPacket(verificationTag: number, chunks: Buffer[]): void {
+    const header = C.encodeCommonHeader(this.#localPort, this.#remotePort, verificationTag);
     const packet = Buffer.concat([header, ...chunks]);
     applyChecksum(packet);
     this.emit('output', packet);
@@ -162,38 +160,38 @@ class SctpAssociation extends EventEmitter {
     const header = C.parseCommonHeader(packet);
     const chunks = C.parseChunks(packet);
     for (const chunk of chunks) {
-      this._handleChunk(chunk, header);
+      this.#handleChunk(chunk, header);
     }
   }
 
-  private _handleChunk(chunk: C.ParsedChunk, _header: C.CommonHeader): void {
+  #handleChunk(chunk: C.ParsedChunk, _header: C.CommonHeader): void {
     switch (chunk.type) {
       case C.CHUNK_TYPE.INIT:
-        this._handleInit(chunk);
+        this.#handleInit(chunk);
         break;
       case C.CHUNK_TYPE.INIT_ACK:
-        this._handleInitAck(chunk);
+        this.#handleInitAck(chunk);
         break;
       case C.CHUNK_TYPE.COOKIE_ECHO:
-        this._handleCookieEcho(chunk);
+        this.#handleCookieEcho(chunk);
         break;
       case C.CHUNK_TYPE.COOKIE_ACK:
-        this._handleCookieAck();
+        this.#handleCookieAck();
         break;
       case C.CHUNK_TYPE.DATA:
-        this._handleData(chunk);
+        this.#handleData(chunk);
         break;
       case C.CHUNK_TYPE.SACK:
-        this._handleSack(chunk);
+        this.#handleSack(chunk);
         break;
       case C.CHUNK_TYPE.HEARTBEAT:
-        this._handleHeartbeat(chunk);
+        this.#handleHeartbeat(chunk);
         break;
       case C.CHUNK_TYPE.ABORT:
-        this._abort('peer sent ABORT');
+        this.#abort('peer sent ABORT');
         break;
       case C.CHUNK_TYPE.SHUTDOWN:
-        this._handleShutdown();
+        this.#handleShutdown();
         break;
       default:
         break; // ignore unknown
@@ -202,7 +200,7 @@ class SctpAssociation extends EventEmitter {
 
   // ---- setup handshake ----------------------------------------------------
 
-  private _supportedExtParams(): Buffer[] {
+  #supportedExtParams(): Buffer[] {
     // Advertise Forward-TSN support (FORWARD_TSN_SUPPORTED) like usrsctp does;
     // we don't require it but including it improves interop.
     return [
@@ -210,119 +208,117 @@ class SctpAssociation extends EventEmitter {
     ];
   }
 
-  private _sendInit(): void {
+  #sendInit(): void {
     const body = C.encodeInitBody({
-      initiateTag: this._localTag,
+      initiateTag: this.#localTag,
       a_rwnd: DEFAULT_RWND,
       outStreams: 65535,
       inStreams: 65535,
-      initialTSN: this._localTSN,
+      initialTSN: this.#localTSN,
     });
     const init = C.encodeChunk(
       C.CHUNK_TYPE.INIT,
       0,
-      Buffer.concat([body, ...this._supportedExtParams()])
+      Buffer.concat([body, ...this.#supportedExtParams()])
     );
     // INIT must be sent with verification tag 0.
-    this._emitPacket(0, [init]);
-    this._armInitRetransmit([init]);
+    this.#emitPacket(0, [init]);
+    this.#armInitRetransmit([init]);
   }
 
-  private _armInitRetransmit(chunks: Buffer[]): void {
-    this._clearInitTimer();
+  #armInitRetransmit(chunks: Buffer[]): void {
+    this.#clearInitTimer();
     let rto = RTO_INITIAL;
     let attempts = 0;
     const fire = (): void => {
       if (this.state === STATE.ESTABLISHED || this.state === STATE.CLOSED) return;
-      if (attempts >= 8) { this._abort('SCTP setup timed out'); return; }
+      if (attempts >= 8) { this.#abort('SCTP setup timed out'); return; }
       attempts++;
-      this._emitPacket(this.state === STATE.COOKIE_ECHOED ? this._remoteTag : 0, chunks);
+      this.#emitPacket(this.state === STATE.COOKIE_ECHOED ? this.#remoteTag : 0, chunks);
       rto = Math.min(rto * 2, RTO_MAX);
-      this._initTimer = setTimeout(fire, rto);
-      if (this._initTimer.unref) this._initTimer.unref();
+      this.#initTimer = setTimeout(fire, rto);
+      if (this.#initTimer.unref) this.#initTimer.unref();
     };
-    this._initTimer = setTimeout(fire, rto);
-    if (this._initTimer.unref) this._initTimer.unref();
+    this.#initTimer = setTimeout(fire, rto);
+    if (this.#initTimer.unref) this.#initTimer.unref();
   }
 
-  private _clearInitTimer(): void {
-    if (this._initTimer) { clearTimeout(this._initTimer); this._initTimer = null; }
+  #clearInitTimer(): void {
+    if (this.#initTimer) { clearTimeout(this.#initTimer); this.#initTimer = null; }
   }
 
-  private _handleInit(chunk: C.ParsedChunk): void {
+  #handleInit(chunk: C.ParsedChunk): void {
     // Server side: reply with INIT_ACK carrying a state cookie.
     const init = C.parseInitBody(chunk.body);
-    this._remoteTag = init.initiateTag;
-    this._peerCumulativeTSN = (init.initialTSN - 1) >>> 0;
+    this.#remoteTag = init.initiateTag;
+    this.#peerCumulativeTSN = (init.initialTSN - 1) >>> 0;
 
     // State cookie: an opaque blob the peer echoes back. We authenticate it
     // with an HMAC over the parameters we need to resume.
-    if (!this._cookieSecret) this._cookieSecret = crypto.randomBytes(32);
+    if (!this.#cookieSecret) this.#cookieSecret = crypto.randomBytes(32);
     const cookieData = Buffer.alloc(16);
-    cookieData.writeUInt32BE(this._localTag, 0);
-    cookieData.writeUInt32BE(this._remoteTag, 4);
-    cookieData.writeUInt32BE(this._localTSN, 8);
+    cookieData.writeUInt32BE(this.#localTag, 0);
+    cookieData.writeUInt32BE(this.#remoteTag, 4);
+    cookieData.writeUInt32BE(this.#localTSN, 8);
     cookieData.writeUInt32BE(init.initialTSN, 12);
-    const mac = crypto.createHmac('sha256', this._cookieSecret).update(cookieData).digest();
+    const mac = crypto.createHmac('sha256', this.#cookieSecret).update(cookieData).digest();
     const cookie = Buffer.concat([cookieData, mac]);
 
     const ackBody = C.encodeInitBody({
-      initiateTag: this._localTag,
+      initiateTag: this.#localTag,
       a_rwnd: DEFAULT_RWND,
       outStreams: 65535,
       inStreams: 65535,
-      initialTSN: this._localTSN,
+      initialTSN: this.#localTSN,
     });
     const params = Buffer.concat([
       C.encodeParam(C.PARAM_TYPE.STATE_COOKIE, cookie),
-      ...this._supportedExtParams(),
+      ...this.#supportedExtParams(),
     ]);
     const initAck = C.encodeChunk(C.CHUNK_TYPE.INIT_ACK, 0, Buffer.concat([ackBody, params]));
     // INIT_ACK is sent with the peer's initiate tag as verification tag.
-    this._emitPacket(this._remoteTag, [initAck]);
+    this.#emitPacket(this.#remoteTag, [initAck]);
   }
 
-  private _handleInitAck(chunk: C.ParsedChunk): void {
+  #handleInitAck(chunk: C.ParsedChunk): void {
     if (this.state !== STATE.COOKIE_WAIT) return;
-    this._clearInitTimer();
+    this.#clearInitTimer();
     const initAck = C.parseInitBody(chunk.body);
-    this._remoteTag = initAck.initiateTag;
-    this._peerCumulativeTSN = (initAck.initialTSN - 1) >>> 0;
+    this.#remoteTag = initAck.initiateTag;
+    this.#peerCumulativeTSN = (initAck.initialTSN - 1) >>> 0;
 
     // Find the state cookie and echo it back.
     const cookieParam = initAck.params.find((p) => p.type === C.PARAM_TYPE.STATE_COOKIE);
-    if (!cookieParam) { this._abort('INIT_ACK missing state cookie'); return; }
+    if (!cookieParam) { this.#abort('INIT_ACK missing state cookie'); return; }
 
     const cookieEcho = C.encodeChunk(C.CHUNK_TYPE.COOKIE_ECHO, 0, cookieParam.value);
-    this._cookieEcho = cookieEcho;
     this.state = STATE.COOKIE_ECHOED;
-    this._emitPacket(this._remoteTag, [cookieEcho]);
-    this._armInitRetransmit([cookieEcho]);
+    this.#emitPacket(this.#remoteTag, [cookieEcho]);
+    this.#armInitRetransmit([cookieEcho]);
   }
 
-  private _handleCookieEcho(chunk: C.ParsedChunk): void {
+  #handleCookieEcho(chunk: C.ParsedChunk): void {
     // Server side: validate cookie, establish, reply COOKIE_ACK.
     const cookie = chunk.body;
-    if (cookie.length >= 48 && this._cookieSecret) {
+    if (cookie.length >= 48 && this.#cookieSecret) {
       const data = cookie.slice(0, 16);
       const mac = cookie.slice(16, 48);
-      const expected = crypto.createHmac('sha256', this._cookieSecret).update(data).digest();
+      const expected = crypto.createHmac('sha256', this.#cookieSecret).update(data).digest();
       if (!crypto.timingSafeEqual(mac, expected)) return; // bad cookie
       // (tags/TSNs already set from the INIT we processed)
     }
     const cookieAck = C.encodeChunk(C.CHUNK_TYPE.COOKIE_ACK, 0, Buffer.alloc(0));
-    this._emitPacket(this._remoteTag, [cookieAck]);
-    this._establish();
+    this.#emitPacket(this.#remoteTag, [cookieAck]);
+    this.#establish();
   }
 
-  private _handleCookieAck(): void {
+  #handleCookieAck(): void {
     if (this.state !== STATE.COOKIE_ECHOED) return;
-    this._clearInitTimer();
-    this._cookieEcho = null;
-    this._establish();
+    this.#clearInitTimer();
+    this.#establish();
   }
 
-  private _establish(): void {
+  #establish(): void {
     if (this.state === STATE.ESTABLISHED) return;
     this.state = STATE.ESTABLISHED;
     this.emit('established');
@@ -347,8 +343,8 @@ class SctpAssociation extends EventEmitter {
     // Fragment into <= MAX_PAYLOAD pieces; set B/E flags accordingly.
     let ssn = 0;
     if (!unordered) {
-      ssn = this._nextSSN.get(streamId) || 0;
-      this._nextSSN.set(streamId, (ssn + 1) & 0xffff);
+      ssn = this.#nextSSN.get(streamId) || 0;
+      this.#nextSSN.set(streamId, (ssn + 1) & 0xffff);
     }
 
     const total = data.length;
@@ -359,77 +355,77 @@ class SctpAssociation extends EventEmitter {
       const slice = data.slice(offset, offset + MAX_PAYLOAD);
       const beginning = offset === 0;
       const ending = offset + slice.length >= total;
-      const tsn = this._localTSN;
-      this._localTSN = (this._localTSN + 1) >>> 0;
+      const tsn = this.#localTSN;
+      this.#localTSN = (this.#localTSN + 1) >>> 0;
       const { flags, body } = C.encodeDataBody({
         tsn, streamId, streamSeq: ssn, ppid, userData: slice,
         unordered, beginning, ending,
       });
       const chunk = C.encodeChunk(C.CHUNK_TYPE.DATA, flags, body);
-      this._sentQueue.set(tsn, { chunk });
+      this.#sentQueue.set(tsn, { chunk });
       chunks.push(chunk);
       offset += slice.length;
     } while (offset < total);
 
     // Send each DATA chunk (one per packet keeps it simple and MTU-safe).
     for (const chunk of chunks) {
-      this._emitPacket(this._remoteTag, [chunk]);
+      this.#emitPacket(this.#remoteTag, [chunk]);
     }
   }
 
-  private _handleData(chunk: C.ParsedChunk): void {
+  #handleData(chunk: C.ParsedChunk): void {
     const data = C.parseDataBody(chunk.flags, chunk.body);
 
     // Always SACK what we've got (delayed-SACK simplified to immediate).
-    this._deliverData(data);
-    this._sendSack();
+    this.#deliverData(data);
+    this.#sendSack();
   }
 
-  private _deliverData(data: C.ParsedDataBody): void {
+  #deliverData(data: C.ParsedDataBody): void {
     // Track cumulative TSN. Accept in-order and buffer out-of-order.
-    const expected = ((this._peerCumulativeTSN as number) + 1) >>> 0;
+    const expected = ((this.#peerCumulativeTSN as number) + 1) >>> 0;
     if (snLt(data.tsn, expected)) {
       return; // duplicate / already delivered
     }
 
     if (data.tsn === expected) {
-      this._peerCumulativeTSN = data.tsn;
-      this._consume(data);
+      this.#peerCumulativeTSN = data.tsn;
+      this.#consume(data);
       // Drain any buffered contiguous TSNs.
-      let next = (this._peerCumulativeTSN + 1) >>> 0;
-      while (this._receivedOutOfOrder.has(next)) {
-        const buffered = this._receivedOutOfOrder.get(next) as C.ParsedDataBody;
-        this._receivedOutOfOrder.delete(next);
-        this._peerCumulativeTSN = next;
-        this._consume(buffered);
-        next = (this._peerCumulativeTSN + 1) >>> 0;
+      let next = (this.#peerCumulativeTSN + 1) >>> 0;
+      while (this.#receivedOutOfOrder.has(next)) {
+        const buffered = this.#receivedOutOfOrder.get(next) as C.ParsedDataBody;
+        this.#receivedOutOfOrder.delete(next);
+        this.#peerCumulativeTSN = next;
+        this.#consume(buffered);
+        next = (this.#peerCumulativeTSN + 1) >>> 0;
       }
     } else {
       // Out of order: buffer for later (gap).
-      if (!this._receivedOutOfOrder.has(data.tsn)) {
-        this._receivedOutOfOrder.set(data.tsn, data);
+      if (!this.#receivedOutOfOrder.has(data.tsn)) {
+        this.#receivedOutOfOrder.set(data.tsn, data);
       }
     }
   }
 
   /** Reassemble fragments and emit complete user messages. */
-  private _consume(data: C.ParsedDataBody): void {
+  #consume(data: C.ParsedDataBody): void {
     const key = `${data.streamId}:${data.unordered ? 'u' : 'o'}`;
     if (data.beginning && data.ending) {
       this.emit('message', { streamId: data.streamId, ppid: data.ppid, data: data.userData });
       return;
     }
-    let buf = this._fragments.get(key);
+    let buf = this.#fragments.get(key);
     if (data.beginning) {
       buf = { ppid: data.ppid, parts: [data.userData] };
-      this._fragments.set(key, buf);
+      this.#fragments.set(key, buf);
     } else if (buf) {
       buf.parts.push(data.userData);
     } else {
       return; // missing beginning; drop
     }
     if (data.ending && buf) {
-      this._fragments.delete(key);
+      this.#fragments.delete(key);
       this.emit('message', {
         streamId: data.streamId,
         ppid: buf.ppid,
@@ -438,12 +434,12 @@ class SctpAssociation extends EventEmitter {
     }
   }
 
-  private _sendSack(): void {
+  #sendSack(): void {
     // Build gap-ack blocks from buffered out-of-order TSNs.
     const gapBlocks: Array<[number, number]> = [];
-    if (this._receivedOutOfOrder.size > 0) {
-      const sorted = [...this._receivedOutOfOrder.keys()].sort((a, b) => (snLt(a, b) ? -1 : 1));
-      const base = ((this._peerCumulativeTSN as number) + 1) >>> 0;
+    if (this.#receivedOutOfOrder.size > 0) {
+      const sorted = [...this.#receivedOutOfOrder.keys()].sort((a, b) => (snLt(a, b) ? -1 : 1));
+      const base = ((this.#peerCumulativeTSN as number) + 1) >>> 0;
       let start: number | null = null;
       let prev: number | null = null;
       for (const tsn of sorted) {
@@ -458,45 +454,45 @@ class SctpAssociation extends EventEmitter {
     }
 
     const body = C.encodeSackBody({
-      cumulativeTSNAck: (this._peerCumulativeTSN as number) >>> 0,
+      cumulativeTSNAck: (this.#peerCumulativeTSN as number) >>> 0,
       a_rwnd: DEFAULT_RWND,
       gapBlocks,
     });
     const sack = C.encodeChunk(C.CHUNK_TYPE.SACK, 0, body);
-    this._emitPacket(this._remoteTag, [sack]);
+    this.#emitPacket(this.#remoteTag, [sack]);
   }
 
-  private _handleSack(chunk: C.ParsedChunk): void {
+  #handleSack(chunk: C.ParsedChunk): void {
     const sack = C.parseSackBody(chunk.body);
     // Remove acknowledged TSNs from the retransmit queue.
-    for (const tsn of [...this._sentQueue.keys()]) {
+    for (const tsn of [...this.#sentQueue.keys()]) {
       if (snLte(tsn, sack.cumulativeTSNAck)) {
-        this._sentQueue.delete(tsn);
+        this.#sentQueue.delete(tsn);
       }
     }
     // Gap-acked blocks are relative to cumAck; mark those acked too.
     const base = (sack.cumulativeTSNAck + 1) >>> 0;
     for (const [start, end] of sack.gapBlocks) {
       for (let i = start; i <= end; i++) {
-        this._sentQueue.delete((base + i - 1) >>> 0);
+        this.#sentQueue.delete((base + i - 1) >>> 0);
       }
     }
   }
 
-  private _handleHeartbeat(chunk: C.ParsedChunk): void {
+  #handleHeartbeat(chunk: C.ParsedChunk): void {
     // Echo the heartbeat info back as HEARTBEAT_ACK.
     const ack = C.encodeChunk(C.CHUNK_TYPE.HEARTBEAT_ACK, 0, chunk.body);
-    this._emitPacket(this._remoteTag, [ack]);
+    this.#emitPacket(this.#remoteTag, [ack]);
   }
 
-  private _handleShutdown(): void {
+  #handleShutdown(): void {
     const sdAck = C.encodeChunk(C.CHUNK_TYPE.SHUTDOWN_ACK, 0, Buffer.alloc(0));
-    this._emitPacket(this._remoteTag, [sdAck]);
-    this._close();
+    this.#emitPacket(this.#remoteTag, [sdAck]);
+    this.#close();
   }
 
-  private _abort(reason?: string): void {
-    this._clearInitTimer();
+  #abort(reason?: string): void {
+    this.#clearInitTimer();
     if (this.state !== STATE.CLOSED) {
       this.state = STATE.CLOSED;
       this.emit('error', new Error(reason || 'SCTP abort'));
@@ -506,18 +502,18 @@ class SctpAssociation extends EventEmitter {
 
   /** Gracefully close the association. */
   shutdown(): void {
-    if (this.state !== STATE.ESTABLISHED) { this._close(); return; }
+    if (this.state !== STATE.ESTABLISHED) { this.#close(); return; }
     const sd = C.encodeChunk(C.CHUNK_TYPE.SHUTDOWN, 0, (() => {
       const b = Buffer.alloc(4);
-      b.writeUInt32BE((this._peerCumulativeTSN as number) >>> 0, 0);
+      b.writeUInt32BE((this.#peerCumulativeTSN as number) >>> 0, 0);
       return b;
     })());
-    this._emitPacket(this._remoteTag, [sd]);
-    this._close();
+    this.#emitPacket(this.#remoteTag, [sd]);
+    this.#close();
   }
 
-  private _close(): void {
-    this._clearInitTimer();
+  #close(): void {
+    this.#clearInitTimer();
     if (this.state === STATE.CLOSED) return;
     this.state = STATE.CLOSED;
     this.emit('close');

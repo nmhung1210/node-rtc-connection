@@ -123,16 +123,16 @@ function buildAAD(
  * @description Holds the key/IV for one direction and does record AEAD.
  */
 export class GcmCipher {
-  private readonly _key: Buffer;
-  private readonly _fixedIv: Buffer;
+  #key: Buffer;
+  #fixedIv: Buffer;
 
   /**
    * @param {Buffer} key - 16-byte AES key
    * @param {Buffer} fixedIv - 4-byte implicit salt
    */
   constructor(key: Buffer, fixedIv: Buffer) {
-    this._key = key;
-    this._fixedIv = fixedIv;
+    this.#key = key;
+    this.#fixedIv = fixedIv;
   }
 
   /**
@@ -156,10 +156,10 @@ export class GcmCipher {
     explicitNonce.writeUInt16BE(epoch, 0);
     explicitNonce.writeUIntBE(seq, 2, 6);
 
-    const nonce = Buffer.concat([this._fixedIv, explicitNonce]);
+    const nonce = Buffer.concat([this.#fixedIv, explicitNonce]);
     const aad = buildAAD(epoch, seq, type, version, plaintext.length);
 
-    const cipher = crypto.createCipheriv('aes-128-gcm', this._key, nonce);
+    const cipher = crypto.createCipheriv('aes-128-gcm', this.#key, nonce);
     cipher.setAAD(aad);
     const ct = Buffer.concat([cipher.update(plaintext), cipher.final()]);
     const tag = cipher.getAuthTag();
@@ -187,10 +187,10 @@ export class GcmCipher {
     const tag = record.slice(record.length - TAG_LEN);
     const ct = record.slice(RECORD_IV_LEN, record.length - TAG_LEN);
 
-    const nonce = Buffer.concat([this._fixedIv, explicitNonce]);
+    const nonce = Buffer.concat([this.#fixedIv, explicitNonce]);
     const aad = buildAAD(epoch, seq, type, version, ct.length);
 
-    const decipher = crypto.createDecipheriv('aes-128-gcm', this._key, nonce);
+    const decipher = crypto.createDecipheriv('aes-128-gcm', this.#key, nonce);
     decipher.setAAD(aad);
     decipher.setAuthTag(tag);
     return Buffer.concat([decipher.update(ct), decipher.final()]);

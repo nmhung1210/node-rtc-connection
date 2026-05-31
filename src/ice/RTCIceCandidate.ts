@@ -60,27 +60,27 @@ class RTCIceCandidate {
    * SDP candidate string.
    * @private {string}
    */
-  private readonly _candidate: string;
+  #candidate: string;
 
   /**
    * Media stream identification.
    * @private {string|null}
    */
-  private readonly _sdpMid: string | null;
+  #sdpMid: string | null;
 
   /**
    * Media line index (zero-based).
    * @private {number|null}
    */
-  private readonly _sdpMLineIndex: number | null;
+  #sdpMLineIndex: number | null;
 
   /**
    * ICE username fragment.
    * @private {string|null}
    */
-  private readonly _usernameFragment: string | null;
+  #usernameFragment: string | null;
 
-  private readonly _parsedAttributes: ParsedCandidateAttributes;
+  #parsedAttributes: ParsedCandidateAttributes;
 
   /**
    * Creates a new RTCIceCandidate.
@@ -98,17 +98,17 @@ class RTCIceCandidate {
       throw new TypeError('sdpMid and sdpMLineIndex are both null');
     }
 
-    this._candidate = candidateInit.candidate || '';
+    this.#candidate = candidateInit.candidate || '';
 
-    this._sdpMid = candidateInit.sdpMid !== undefined ? candidateInit.sdpMid : null;
+    this.#sdpMid = candidateInit.sdpMid !== undefined ? candidateInit.sdpMid : null;
 
-    this._sdpMLineIndex = candidateInit.sdpMLineIndex !== undefined ?
+    this.#sdpMLineIndex = candidateInit.sdpMLineIndex !== undefined ?
       candidateInit.sdpMLineIndex : null;
 
-    this._usernameFragment = candidateInit.usernameFragment || null;
+    this.#usernameFragment = candidateInit.usernameFragment || null;
 
     // Parse candidate string for detailed attributes
-    this._parsedAttributes = this._parseCandidate(this._candidate);
+    this.#parsedAttributes = this.#parseCandidate(this.#candidate);
   }
 
   /**
@@ -119,7 +119,7 @@ class RTCIceCandidate {
    * @param {string} candidateStr - Candidate string to parse
    * @returns {Object} Parsed attributes
    */
-  private _parseCandidate(candidateStr: string): ParsedCandidateAttributes {
+  #parseCandidate(candidateStr: string): ParsedCandidateAttributes {
     const attrs: ParsedCandidateAttributes = {
       foundation: null,
       component: null,
@@ -179,7 +179,7 @@ class RTCIceCandidate {
    * @type {string}
    */
   get candidate(): string {
-    return this._candidate;
+    return this.#candidate;
   }
 
   /**
@@ -187,7 +187,7 @@ class RTCIceCandidate {
    * @type {string|null}
    */
   get sdpMid(): string | null {
-    return this._sdpMid;
+    return this.#sdpMid;
   }
 
   /**
@@ -195,7 +195,7 @@ class RTCIceCandidate {
    * @type {number|null}
    */
   get sdpMLineIndex(): number | null {
-    return this._sdpMLineIndex;
+    return this.#sdpMLineIndex;
   }
 
   /**
@@ -203,7 +203,7 @@ class RTCIceCandidate {
    * @type {string|null}
    */
   get usernameFragment(): string | null {
-    return this._usernameFragment;
+    return this.#usernameFragment;
   }
 
   /**
@@ -211,7 +211,7 @@ class RTCIceCandidate {
    * @type {string|null}
    */
   get foundation(): string | null {
-    return this._parsedAttributes.foundation;
+    return this.#parsedAttributes.foundation;
   }
 
   /**
@@ -219,7 +219,7 @@ class RTCIceCandidate {
    * @type {string|null}
    */
   get component(): string | null {
-    return this._parsedAttributes.component;
+    return this.#parsedAttributes.component;
   }
 
   /**
@@ -228,7 +228,7 @@ class RTCIceCandidate {
    * @type {number|null}
    */
   get priority(): number | null {
-    return this._parsedAttributes.priority;
+    return this.#parsedAttributes.priority;
   }
 
   /**
@@ -236,7 +236,7 @@ class RTCIceCandidate {
    * @type {string|null}
    */
   get address(): string | null {
-    return this._parsedAttributes.address;
+    return this.#parsedAttributes.address;
   }
 
   /**
@@ -244,7 +244,7 @@ class RTCIceCandidate {
    * @type {string|null}
    */
   get protocol(): string | null {
-    return this._parsedAttributes.protocol;
+    return this.#parsedAttributes.protocol;
   }
 
   /**
@@ -252,7 +252,7 @@ class RTCIceCandidate {
    * @type {number|null}
    */
   get port(): number | null {
-    return this._parsedAttributes.port;
+    return this.#parsedAttributes.port;
   }
 
   /**
@@ -260,7 +260,7 @@ class RTCIceCandidate {
    * @type {string|null}
    */
   get type(): string | null {
-    return this._parsedAttributes.type;
+    return this.#parsedAttributes.type;
   }
 
   /**
@@ -269,7 +269,7 @@ class RTCIceCandidate {
    * @type {string|null}
    */
   get tcpType(): string | null {
-    return this._parsedAttributes.tcpType;
+    return this.#parsedAttributes.tcpType;
   }
 
   /**
@@ -277,7 +277,7 @@ class RTCIceCandidate {
    * @type {string|null}
    */
   get relatedAddress(): string | null {
-    return this._parsedAttributes.relatedAddress;
+    return this.#parsedAttributes.relatedAddress;
   }
 
   /**
@@ -285,7 +285,7 @@ class RTCIceCandidate {
    * @type {number|null}
    */
   get relatedPort(): number | null {
-    return this._parsedAttributes.relatedPort;
+    return this.#parsedAttributes.relatedPort;
   }
 
   /**
@@ -294,13 +294,13 @@ class RTCIceCandidate {
    */
   toJSON(): RTCIceCandidateJSON {
     const json: RTCIceCandidateJSON = {
-      candidate: this._candidate,
-      sdpMid: this._sdpMid,
-      sdpMLineIndex: this._sdpMLineIndex,
+      candidate: this.#candidate,
+      sdpMid: this.#sdpMid,
+      sdpMLineIndex: this.#sdpMLineIndex,
     };
 
-    if (this._usernameFragment) {
-      json.usernameFragment = this._usernameFragment;
+    if (this.#usernameFragment) {
+      json.usernameFragment = this.#usernameFragment;
     }
 
     return json;

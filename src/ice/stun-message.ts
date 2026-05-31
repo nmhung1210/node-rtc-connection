@@ -125,7 +125,7 @@ export class StunMessageBuilder {
   }
 
   /** Serialize the attributes added so far. */
-  _encodeBody(): Buffer {
+  #encodeBody(): Buffer {
     const parts: Buffer[] = [];
     for (const a of this.attrs) {
       const head = Buffer.alloc(4);
@@ -138,7 +138,7 @@ export class StunMessageBuilder {
     return Buffer.concat(parts);
   }
 
-  _header(bodyLen: number): Buffer {
+  #header(bodyLen: number): Buffer {
     const h = Buffer.alloc(20);
     h.writeUInt16BE(this.type, 0);
     h.writeUInt16BE(bodyLen, 2);
@@ -155,12 +155,12 @@ export class StunMessageBuilder {
    * @returns {Buffer}
    */
   build(password?: string): Buffer {
-    let body = this._encodeBody();
+    let body = this.#encodeBody();
 
     if (password) {
       // Length for HMAC input = current body + (4 header + 20 HMAC).
       const lenForMI = body.length + 24;
-      const header = this._header(lenForMI);
+      const header = this.#header(lenForMI);
       const hmac = crypto
         .createHmac('sha1', Buffer.from(password, 'utf8'))
         .update(Buffer.concat([header, body]))
@@ -174,7 +174,7 @@ export class StunMessageBuilder {
     // FINGERPRINT: CRC-32 over the message (with length including fingerprint)
     // Xored with 0x5354554e.
     const lenForFp = body.length + 8;
-    const headerFp = this._header(lenForFp);
+    const headerFp = this.#header(lenForFp);
     const fpVal = (crc32(Buffer.concat([headerFp, body])) ^ 0x5354554e) >>> 0;
     const fpHead = Buffer.alloc(8);
     fpHead.writeUInt16BE(ATTR.FINGERPRINT, 0);
@@ -182,7 +182,7 @@ export class StunMessageBuilder {
     fpHead.writeUInt32BE(fpVal, 4);
     body = Buffer.concat([body, fpHead]);
 
-    return Buffer.concat([this._header(body.length), body]);
+    return Buffer.concat([this.#header(body.length), body]);
   }
 }
 

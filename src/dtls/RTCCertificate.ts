@@ -129,12 +129,11 @@ function calculateFingerprint(
  * });
  */
 class RTCCertificate {
-  private _certDer: Buffer | null;
-  private _privateKey: crypto.KeyObject | string;
-  private _publicKey: crypto.KeyObject | string;
-  private _expires: number;
-  readonly _hash: string;
-  private _fingerprints: RTCDtlsFingerprint[] | null;
+  #certDer: Buffer | null;
+  #privateKey: crypto.KeyObject | string;
+  #publicKey: crypto.KeyObject | string;
+  #expires: number;
+  #fingerprints: RTCDtlsFingerprint[] | null;
 
   /**
    * Create an RTCCertificate instance.
@@ -144,14 +143,13 @@ class RTCCertificate {
    */
   constructor(certData: CertData) {
     // Store certificate data
-    this._certDer = certData.certDer || null; // Buffer, DER X.509 cert
-    this._privateKey = certData.privateKey; // crypto.KeyObject or PEM string
-    this._publicKey = certData.publicKey;
-    this._expires = certData.expires;
-    this._hash = certData.hash || 'sha256';
+    this.#certDer = certData.certDer || null; // Buffer, DER X.509 cert
+    this.#privateKey = certData.privateKey; // crypto.KeyObject or PEM string
+    this.#publicKey = certData.publicKey;
+    this.#expires = certData.expires;
 
     // Cache fingerprints
-    this._fingerprints = null;
+    this.#fingerprints = null;
   }
 
   /**
@@ -160,7 +158,7 @@ class RTCCertificate {
    * @internal
    */
   getCertificateDer(): Buffer | null {
-    return this._certDer;
+    return this.#certDer;
   }
 
   /**
@@ -168,7 +166,7 @@ class RTCCertificate {
    * @returns Expiration time in milliseconds since epoch (DOMTimeStamp)
    */
   get expires(): number {
-    return this._expires;
+    return this.#expires;
   }
 
   /**
@@ -179,20 +177,20 @@ class RTCCertificate {
    * @returns Array of fingerprint objects
    */
   getFingerprints(): RTCDtlsFingerprint[] {
-    if (!this._certDer) {
+    if (!this.#certDer) {
       throw new Error('Certificate has no DER encoding; cannot compute fingerprint');
     }
-    if (!this._fingerprints) {
+    if (!this.#fingerprints) {
       // Fingerprint is computed over the DER certificate (RFC 8122).
-      const certDer = this._certDer;
+      const certDer = this.#certDer;
       const algorithms = ['sha-256', 'sha-384', 'sha-512'];
-      this._fingerprints = algorithms.map(algorithm => ({
+      this.#fingerprints = algorithms.map(algorithm => ({
         algorithm,
         value: calculateFingerprint(certDer, algorithm),
       }));
     }
 
-    return this._fingerprints.map(fp => ({ ...fp }));
+    return this.#fingerprints.map(fp => ({ ...fp }));
   }
 
   /**
@@ -200,14 +198,14 @@ class RTCCertificate {
    * @internal
    */
   getPrivateKeyObject(): crypto.KeyObject {
-    return this._toKeyObject(this._privateKey, 'private');
+    return this.#toKeyObject(this.#privateKey, 'private');
   }
 
   /**
    * Coerce a stored key (KeyObject or PEM string) into a KeyObject.
    * @private
    */
-  _toKeyObject(
+  #toKeyObject(
     key: crypto.KeyObject | string,
     kind: 'private' | 'public'
   ): crypto.KeyObject {
@@ -226,7 +224,7 @@ class RTCCertificate {
    * @internal
    */
   getPrivateKey(): string {
-    const obj = this._toKeyObject(this._privateKey, 'private');
+    const obj = this.#toKeyObject(this.#privateKey, 'private');
     return obj.export({ type: 'pkcs8', format: 'pem' }) as string;
   }
 
@@ -236,7 +234,7 @@ class RTCCertificate {
    * @internal
    */
   getPublicKey(): string {
-    const obj = this._toKeyObject(this._publicKey, 'public');
+    const obj = this.#toKeyObject(this.#publicKey, 'public');
     return obj.export({ type: 'spki', format: 'pem' }) as string;
   }
 
@@ -246,8 +244,8 @@ class RTCCertificate {
    * @returns Object with pemPrivateKey and pemCertificate
    */
   toPEM(): RTCCertificatePEM {
-    const pemCertificate = this._certDer
-      ? `-----BEGIN CERTIFICATE-----\n${this._certDer
+    const pemCertificate = this.#certDer
+      ? `-----BEGIN CERTIFICATE-----\n${this.#certDer
           .toString('base64')
           .match(/.{1,64}/g)!
           .join('\n')}\n-----END CERTIFICATE-----\n`
@@ -263,7 +261,7 @@ class RTCCertificate {
    * @returns True if expired, false otherwise
    */
   isExpired(): boolean {
-    return Date.now() > this._expires;
+    return Date.now() > this.#expires;
   }
 
   /**

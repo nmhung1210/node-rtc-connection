@@ -36,16 +36,16 @@ export interface TransportStackOptions {
 }
 
 export class TransportStack extends EventEmitter {
-  private _opts: TransportStackOptions;
+  #opts: TransportStackOptions;
   ice: IceAgent;
   dtls: DtlsConnection | null;
   sctp: SctpAssociation | null;
   dcm: DataChannelManager | null;
-  private _dtlsStarted: boolean;
+  #dtlsStarted: boolean;
 
   constructor(opts: TransportStackOptions) {
     super();
-    this._opts = opts;
+    this.#opts = opts;
     this.ice = new IceAgent({
       role: opts.iceRole,
       localUfrag: opts.localUfrag,
@@ -54,7 +54,7 @@ export class TransportStack extends EventEmitter {
     this.dtls = null;
     this.sctp = null;
     this.dcm = null;
-    this._dtlsStarted = false;
+    this.#dtlsStarted = false;
 
     this.ice.on('candidate', (c) => this.emit('candidate', c));
     this.ice.on('error', (e) => this.emit('error', e));
@@ -67,7 +67,7 @@ export class TransportStack extends EventEmitter {
 
     this.ice.on('connected', () => {
       this.emit('iceconnected');
-      this._startDtls();
+      this.#startDtls();
     });
   }
 
@@ -93,15 +93,15 @@ export class TransportStack extends EventEmitter {
     this.ice.addRemoteCandidate(cand);
   }
 
-  private _startDtls(): void {
-    if (this._dtlsStarted) return;
-    this._dtlsStarted = true;
+  #startDtls(): void {
+    if (this.#dtlsStarted) return;
+    this.#dtlsStarted = true;
 
     this.dtls = new DtlsConnection({
-      role: this._opts.dtlsRole === 'client' ? DTLS_ROLE.CLIENT : DTLS_ROLE.SERVER,
-      certDer: this._opts.certDer,
-      privateKey: this._opts.privateKey,
-      verifyFingerprint: this._opts.verifyFingerprint,
+      role: this.#opts.dtlsRole === 'client' ? DTLS_ROLE.CLIENT : DTLS_ROLE.SERVER,
+      certDer: this.#opts.certDer,
+      privateKey: this.#opts.privateKey,
+      verifyFingerprint: this.#opts.verifyFingerprint,
       output: (datagram: Buffer) => {
         try { this.ice.send(datagram); } catch (e) { this.emit('error', e); }
       },
@@ -109,7 +109,7 @@ export class TransportStack extends EventEmitter {
 
     this.dtls.on('connect', () => {
       this.emit('dtlsconnected');
-      this._startSctp();
+      this.#startSctp();
     });
     this.dtls.on('data', (record: Buffer) => {
       if (this.sctp) this.sctp.receivePacket(record);
@@ -120,8 +120,8 @@ export class TransportStack extends EventEmitter {
     this.dtls.start();
   }
 
-  private _startSctp(): void {
-    const isClient = this._opts.dtlsRole === 'client';
+  #startSctp(): void {
+    const isClient = this.#opts.dtlsRole === 'client';
     const sctp = new SctpAssociation({ isClient });
     this.sctp = sctp;
     sctp.on('output', (pkt: Buffer) => {
