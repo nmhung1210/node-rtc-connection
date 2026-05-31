@@ -41,7 +41,7 @@ function buildName(cn) {
  * The AlgorithmIdentifier for ecdsa-with-SHA256 (no parameters).
  * @returns {Buffer}
  */
-function ecdsaWithSha256AlgId() {
+function ecdsaWithSHA256AlgId() {
   return der.encodeSequence([der.encodeOID(OID.ecdsaWithSHA256)]);
 }
 
@@ -86,7 +86,7 @@ function generateSelfSigned(options = {}) {
   const tbs = der.encodeSequence([
     der.encodeExplicit(0, der.encodeInteger(2)), // version v3 (value 2)
     der.encodeIntegerFromBuffer(serial), // serialNumber
-    ecdsaWithSha256AlgId(), // signature algorithm
+    ecdsaWithSHA256AlgId(), // signature algorithm
     name, // issuer (== subject, self-signed)
     der.encodeSequence([der.encodeTime(notBefore), der.encodeTime(notAfter)]),
     name, // subject
@@ -98,7 +98,7 @@ function generateSelfSigned(options = {}) {
 
   const certDer = der.encodeSequence([
     tbs,
-    ecdsaWithSha256AlgId(),
+    ecdsaWithSHA256AlgId(),
     der.encodeBitString(signature),
   ]);
 
