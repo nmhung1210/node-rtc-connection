@@ -1,21 +1,35 @@
 # NodeRTC
 
-A Node.js WebRTC implementation with full ICE/STUN/TURN support for real peer-to-peer networking.
+A from-scratch, pure-Node.js WebRTC data-channel implementation that
+**interoperates with browsers**. No native dependencies — the entire ICE / DTLS
+/ SCTP stack is built on Node's `crypto` and `dgram`. Written in TypeScript;
+ships type declarations.
 
 ## Features
 
-- ✅ **Real Network Transport**: Uses actual UDP/TCP sockets for true peer-to-peer connections
-- ✅ **ICE Support**: Full Interactive Connectivity Establishment with candidate gathering
-- ✅ **STUN Support**: NAT traversal with server reflexive candidates
-- ✅ **TURN Support**: Relay candidates for restrictive network environments
-- ✅ **Data Channels**: Reliable and ordered data channels for P2P communication
-- ✅ **DTLS/SCTP**: Secure transport with DTLS encryption and SCTP for data channels
-- ✅ **Standards Compliant**: Follows WebRTC and ICE specifications
+- ✅ **Browser interoperable**: Verified end-to-end against Chromium (Playwright) and OpenSSL
+- ✅ **Real protocols, not stubs**: Genuine DTLS 1.2 handshake + SCTP association over UDP
+- ✅ **ICE** (RFC 8445): connectivity checks with MESSAGE-INTEGRITY, host/srflx/relay candidates
+- ✅ **STUN/TURN** (RFC 5389/5766): NAT traversal and relay for restrictive networks
+- ✅ **DTLS 1.2** (RFC 6347): `ECDHE_ECDSA_AES128_GCM`, mutual auth, self-signed ECDSA certs
+- ✅ **SCTP + DCEP** (RFC 8831/8832): ordered/unordered data channels, string + binary
+- ✅ **W3C API**: familiar `RTCPeerConnection` / `RTCDataChannel` surface
+- ✅ **Pure Node.js, no native deps**; CommonJS + ESM bundles with TypeScript types
 
 ## Installation
 
 ```bash
 npm install node-rtc-connection
+```
+
+Works from both CommonJS and ES modules, and bundles TypeScript declarations:
+
+```javascript
+// CommonJS
+const { RTCPeerConnection } = require('node-rtc-connection');
+
+// ES modules / TypeScript
+import { RTCPeerConnection } from 'node-rtc-connection';
 ```
 
 ## Quick Start
@@ -170,51 +184,34 @@ const config = {
 const pc = new RTCPeerConnection(config);
 ```
 
-### Query String Parameters in Server URLs
+### ICE server URLs
 
-The library supports query string parameters in ICE server URLs for advanced configuration:
+ICE server URLs are parsed with query-string support:
 
 ```javascript
 const config = {
   iceServers: [
-    // Transport selection
-    {
-      urls: 'turn:turn.example.com:3478?transport=udp',
-      username: 'user',
-      credential: 'pass'
-    },
-    
-    // Multiple parameters
-    {
-      urls: 'turn:turn.example.com:3478?transport=tcp&ttl=86400',
-      username: 'user',
-      credential: 'pass'
-    },
-    
-    // Multiple URLs with different transports
+    { urls: 'stun:stun.l.google.com:19302' },
     {
       urls: [
-        'turn:turn.cloudflare.com:3478?transport=udp',
-        'turn:turn.cloudflare.com:3478?transport=tcp',
-        'turns:turn.cloudflare.com:5349?transport=tcp'
+        'turn:turn.example.com:3478?transport=udp',
+        'turn:turn.example.com:53?transport=udp'
       ],
-      username: 'cloudflare_user',
-      credential: 'cloudflare_pass'
+      username: 'user',
+      credential: 'pass'
     }
   ]
 };
 ```
 
-**Supported Query Parameters:**
-- `transport=udp|tcp` - Select transport protocol (UDP or TCP)
-- `ttl=<seconds>` - Set allocation lifetime for TURN (default: 600)
-- Custom parameters - Can be added for vendor-specific features
+**URL format:** `stun:host[:port]` and `turn:host[:port][?transport=udp&...]`.
+The default port is `3478` (`5349` for the `turns:` scheme).
 
-**URL Format Examples:**
-- `stun:host:port` - Basic STUN server
-- `turn:host:port?transport=udp` - TURN with UDP transport
-- `turn:host:port?transport=tcp&custom=value` - Multiple parameters
-- `turns:host:port?transport=tcp` - Secure TURN over TLS
+> **Transport support:** connectivity currently uses **UDP only**. STUN
+> reflexive and TURN relay candidates are gathered over UDP; `transport=tcp`
+> and the `turns:` (TLS) scheme are parsed but not yet used for the data path,
+> so list a UDP TURN URL for the relay to work. Unknown query parameters are
+> preserved and ignored.
 
 ## Data Channel API
 
@@ -377,21 +374,21 @@ createPeerConnection().catch(console.error);
 
 The package includes runnable examples in `examples/`:
 
-- **`examples/node-to-node.js`** — Two NodeRTC peers in one process establish a
+- **`examples/node-to-node.ts`** — Two NodeRTC peers in one process establish a
   real data channel and exchange string + binary messages. The quickest way to
   see the full ICE/DTLS/SCTP stack work.
-- **`examples/browser-server.js`** + **`examples/browser-client.html`** — A
+- **`examples/browser-server.ts`** + **`examples/browser-client.html`** — A
   Node.js HTTP server that runs a NodeRTC peer (the offerer) and serves a chat
   page. A browser opens the page, runs its native `RTCPeerConnection` as the
   answerer, and the two establish a genuine WebRTC data channel over UDP.
 
-Run them:
+Run them (the examples are TypeScript, run via `tsx`):
 ```bash
 # Node ↔ Node
-npm run example:node      # or: node examples/node-to-node.js
+npm run example:node
 
 # Node ↔ Browser — then open http://localhost:3000
-npm run example:browser   # or: node examples/browser-server.js
+npm run example:browser
 ```
 
 > The browser example uses plain HTTP for signaling and folds ICE candidates
@@ -427,7 +424,7 @@ new RTCPeerConnection(configuration?)
 ### RTCDataChannel
 
 #### Methods
-- `send(data)` - Send data (string or Buffer)
+- `send(data)` - Send `string`, `ArrayBuffer`, a typed array / `ArrayBufferView`, or a Node `Buffer`
 - `close()` - Close the channel
 
 #### Properties
@@ -440,11 +437,12 @@ new RTCPeerConnection(configuration?)
 - `id` - Channel ID
 - `readyState` - Current state ('connecting', 'open', 'closing', 'closed')
 - `bufferedAmount` - Bytes queued to send
+- `binaryType` - `'arraybuffer'` (default) or `'blob'`; controls how received binary frames are delivered
 
 ## Requirements
 
-- Node.js 14 or higher
-- UDP/TCP network access for ICE connectivity
+- Node.js 18 or higher
+- UDP network access for ICE connectivity (and to a TURN server, if used)
 
 ## Setting Up Your Own TURN Server
 
@@ -457,6 +455,26 @@ apt-get install coturn
 # Basic configuration
 turnserver -v -L 0.0.0.0 -a -u user:password -r realm
 ```
+
+## Development
+
+The project is written in strict TypeScript. Sources live in `src/`; tests in
+`test/` run directly through [`tsx`](https://github.com/privatenumber/tsx) (no
+precompile step).
+
+```bash
+npm run build          # tsc (type declarations) + rollup → minified dist/ bundles
+npm run typecheck      # strict tsc --noEmit over src + tests
+npm test               # full suite (auto-starts a coturn container for the TURN test)
+npm run test:unit      # SKIP_INTEGRATION=1 — no Docker / browser / external servers
+npm run test:coverage  # full suite under c8
+```
+
+The full test suite proves interoperability against external references:
+DTLS handshakes against `openssl`, an end-to-end data channel against real
+Chromium (via Playwright), and a relay path against a real `coturn` server.
+Integration tests skip gracefully when their dependency (Docker, openssl,
+Chromium) is unavailable or when `SKIP_INTEGRATION=1`.
 
 ## License
 
