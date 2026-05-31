@@ -77,12 +77,12 @@ TypeScript types (keep in sync manually).
 
 ### Legacy modules (still present, used only by STUN/TURN tests)
 
-`src/ice/RTCIceTransport.js`, `src/stun/stun-client.js`, and
-`src/network/network-transport.js` are the **old** transport classes. The real
-data path no longer uses them; `stun-client.js` remains a correct STUN/TURN
-client and `RTCIceTransport._parseServerUrl` backs `url-parsing`/`turn-support`
-tests. Don't route data-channel work through these — use the `src/ice/ice-agent`
-+ `TransportStack` path.
+`src/ice/RTCIceTransport.js` and `src/stun/stun-client.js` are **old** transport
+classes the real data path no longer uses. `stun-client.js` remains a correct
+STUN/TURN client and `RTCIceTransport._parseServerUrl` backs the
+`url-parsing`/`turn-support` tests. Don't route data-channel work through these —
+use the `src/ice/ice-agent` + `TransportStack` path. (The old plain-TCP/JSON
+`src/network/network-transport.js` data path has been deleted.)
 
 ### Role negotiation
 
@@ -111,8 +111,11 @@ Interop tests skip gracefully when openssl/Chrome are absent or
 ## Conventions
 
 - CommonJS throughout (`require`/`module.exports`); `"type": "commonjs"`.
-- Tests use `node:test` + `node:assert`; `test/run-all-tests.js` recurses into
-  `test/integration` and runs `test/browser-interop.test.js` (but not the
-  `test/browser/` support code or `test/helpers/`).
+- Tests use `node:test` + `node:assert`. Run them with `npm test`
+  (`test/run-all-tests.js`), which recurses into `test/integration` and runs
+  `test/browser-interop.test.js` while skipping the `test/browser/` support code
+  and `test/helpers/`. Note: raw `node --test test/` will try to execute those
+  support files (Node treats every `.js` under `test/` as a suite), so prefer
+  `npm test`.
 - `dist/` is generated — never edit by hand; rebuild with `npm run build`.
 - All protocol layers extend `EventEmitter` and communicate via events.

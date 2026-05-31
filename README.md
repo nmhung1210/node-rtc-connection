@@ -398,36 +398,6 @@ npm run example:browser   # or: node examples/browser-server.js
 > into the SDP (non-trickle) to keep it simple. A production app would typically
 > use WebSockets with trickle ICE.
 
-## Configuration File
-
-The examples use a `peer.config.json` file for centralized configuration:
-
-```json
-{
-  "iceServers": [
-    { "urls": "stun:stun.l.google.com:19302" }
-  ],
-  "localDemo": {
-    "iceServers": []
-  },
-  "stunOnly": {
-    "iceServers": [
-      { "urls": "stun:stun.l.google.com:19302" }
-    ]
-  },
-  "turnConfig": {
-    "iceServers": [
-      { "urls": "stun:stun.example.com:3478" },
-      {
-        "urls": "turn:turn.example.com:3478",
-        "username": "user",
-        "credential": "pass"
-      }
-    ]
-  }
-}
-```
-
 ## API Reference
 
 ### RTCPeerConnection
@@ -490,7 +460,7 @@ turnserver -v -L 0.0.0.0 -a -u user:password -r realm
 
 ## License
 
-BSD-3-Clause
+MIT
 
 ## Contributing
 
@@ -498,4 +468,6 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 
 ## Acknowledgments
 
-This implementation is inspired by and follows the WebRTC standards and specifications, with particular reference to Chromium's WebRTC implementation.
+This is a from-scratch, pure-Node.js implementation that follows the relevant
+IETF RFCs (8445 ICE, 6347 DTLS 1.2, 8831 SCTP-over-DTLS, 8832 DCEP) and the W3C
+WebRTC specification.
