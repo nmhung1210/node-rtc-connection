@@ -7,7 +7,7 @@
  * Provides WebRTC-specific error types extending the standard Error class
  * with additional error detail types and metadata fields.
  * 
- * @license BSD-3-Clause
+ * @license MIT
  * @author nmhung1210
  */
 

@@ -72,19 +72,15 @@ class SctpAssociation extends EventEmitter {
     // Transmit side.
     this._localTSN = crypto.randomBytes(4).readUInt32BE(0) >>> 0;
     this._nextSSN = new Map(); // streamId -> next outbound stream sequence
-    this._sentQueue = new Map(); // tsn -> { packet, payloadLen }
-    this._a_rwnd = DEFAULT_RWND;
+    this._sentQueue = new Map(); // tsn -> { chunk } awaiting SACK
 
     // Receive side.
     this._peerCumulativeTSN = null; // highest contiguous TSN received
     this._receivedOutOfOrder = new Map(); // tsn -> dataChunk (gap storage)
-    this._reassembly = new Map(); // streamId -> { ordered fragments }
-    this._inboundStreams = new Map(); // streamId -> expected SSN
     this._fragments = new Map(); // streamId -> array of partial DATA payloads
 
     this._cookieEcho = null; // pending cookie to (re)send
     this._initTimer = null;
-    this._rtoTimer = null;
   }
 
   /** Start the association (client sends INIT). */
@@ -207,7 +203,6 @@ class SctpAssociation extends EventEmitter {
     // Server side: reply with INIT_ACK carrying a state cookie.
     const init = C.parseInitBody(chunk.body);
     this._remoteTag = init.initiateTag;
-    this._peerInitialTSN = init.initialTSN;
     this._peerCumulativeTSN = (init.initialTSN - 1) >>> 0;
 
     // State cookie: an opaque blob the peer echoes back. We authenticate it
@@ -242,7 +237,6 @@ class SctpAssociation extends EventEmitter {
     this._clearInitTimer();
     const initAck = C.parseInitBody(chunk.body);
     this._remoteTag = initAck.initiateTag;
-    this._peerInitialTSN = initAck.initialTSN;
     this._peerCumulativeTSN = (initAck.initialTSN - 1) >>> 0;
 
     // Find the state cookie and echo it back.

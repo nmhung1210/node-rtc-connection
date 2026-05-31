@@ -5,7 +5,7 @@
  * and O(n) read operations. Clients can append entire buffers then copy data out across
  * buffer boundaries.
  * 
- * @license BSD-3-Clause
+ * @license MIT
  * @author nmhung1210
  */
 

@@ -7,7 +7,7 @@
  * Represents an ICE (Interactive Connectivity Establishment) candidate that
  * describes a potential way to establish a connection with a peer.
  * 
- * @license BSD-3-Clause
+ * @license MIT
  * @author nmhung1210
  */
 

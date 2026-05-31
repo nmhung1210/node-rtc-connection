@@ -14,7 +14,6 @@
 
 // DTLS 1.2 on the wire is version 0xFEFD (i.e. ~1.2).
 const DTLS_1_2 = 0xfefd;
-const DTLS_1_0 = 0xfeff; // used in some ClientHello/HelloVerifyRequest fields
 
 const CONTENT_TYPE = Object.freeze({
   CHANGE_CIPHER_SPEC: 20,
@@ -82,13 +81,6 @@ function uint24(n) {
 /** Read a uint24 at offset. */
 function readUint24(buf, off) {
   return (buf[off] << 16) | (buf[off + 1] << 8) | buf[off + 2];
-}
-
-/** Encode a uint48 (6 bytes) from a JS number. */
-function uint48(n) {
-  const b = Buffer.alloc(6);
-  b.writeUIntBE(n, 0, 6);
-  return b;
 }
 
 /** Length-prefixed vector with a 1-byte length. */
@@ -188,7 +180,6 @@ function parseHandshake(buf) {
 
 module.exports = {
   DTLS_1_2,
-  DTLS_1_0,
   CONTENT_TYPE,
   HANDSHAKE_TYPE,
   ALERT_LEVEL,
@@ -203,7 +194,6 @@ module.exports = {
   FINISHED_LABEL,
   uint24,
   readUint24,
-  uint48,
   vec8,
   vec16,
   vec24,

@@ -154,10 +154,5 @@ module.exports = {
   deriveMasterSecret,
   deriveExtendedMasterSecret,
   deriveKeys,
-  buildAAD,
   GcmCipher,
-  KEY_LEN,
-  FIXED_IV_LEN,
-  RECORD_IV_LEN,
-  TAG_LEN,
 };

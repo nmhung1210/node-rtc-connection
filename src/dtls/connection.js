@@ -66,7 +66,6 @@ class DtlsConnection extends EventEmitter {
     // Record layer state.
     this._sendEpoch = 0;
     this._sendSeq = 0; // 48-bit record seq within current epoch
-    this._recvEpoch = 0;
     this._handshakeMessageSeq = 0;
 
     // Cipher state (set after key derivation).
@@ -253,7 +252,8 @@ class DtlsConnection extends EventEmitter {
         this._handleHandshakeFragment(fragment);
         break;
       case P.CONTENT_TYPE.CHANGE_CIPHER_SPEC:
-        this._recvEpoch = 1;
+        // Peer switched to its encrypted epoch; records now carry epoch 1,
+        // which _handleRecord already routes through the read cipher.
         break;
       case P.CONTENT_TYPE.APPLICATION_DATA:
         if (this.state === STATE.CONNECTED) this.emit('data', fragment);
@@ -429,8 +429,9 @@ class DtlsConnection extends EventEmitter {
         this._parseServerKeyExchange(body);
         break;
       case P.HANDSHAKE_TYPE.CERTIFICATE_REQUEST:
+        // We always send our certificate (WebRTC is mutual-auth), so the
+        // request only needs to be folded into the transcript.
         this._appendInboundTranscript(type, body);
-        this._certificateRequested = true;
         break;
       case P.HANDSHAKE_TYPE.SERVER_HELLO_DONE:
         this._appendInboundTranscript(type, body);
@@ -621,9 +622,7 @@ class DtlsConnection extends EventEmitter {
       // Stateless cookie exchange: reply with HelloVerifyRequest. Not part of
       // the transcript, and we do not yet commit any state.
       this._clientRandom = random;
-      const cookieToSend = this._makeCookie(random);
-      this._pendingCookie = cookieToSend;
-      this._sendHelloVerifyRequest(cookieToSend);
+      this._sendHelloVerifyRequest(this._makeCookie(random));
       // The client resends ClientHello as message_seq 1; expect that next.
       this._reassembly.clear();
       this._nextExpectedHsSeq = 1;
