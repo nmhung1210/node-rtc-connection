@@ -13,8 +13,10 @@ API. It targets data channels only — no media streams.
 ```bash
 npm run build            # Bundle src/ → dist/index.cjs + dist/index.mjs (rollup)
 npm test                 # Run all *.test.js via test/run-all-tests.js (node:test)
+npm run test:ci          # Reproduce CI locally: start coturn, run the full suite
 npm run test:unit        # Unit tests only, SKIP_INTEGRATION=1
-npm run test:integration # Integration test only
+npm run test:integration # Integration suites only
+npm run test:turn        # TURN plumbing + end-to-end relay (needs coturn)
 npm run test:watch       # node --test --watch
 
 # Run a single test file
@@ -23,10 +25,15 @@ node --test test/RTCDataChannel.test.js
 node --test --test-name-pattern="creates a data channel" test/RTCDataChannel.test.js
 ```
 
+`npm run test:ci` (`scripts/ci-local.sh`) mirrors `.github/workflows/test.yml`:
+it starts a `coturn` container (same image/creds/ports), discovers openssl and
+Chrome, runs `npm test`, and tears coturn down. It needs Docker for the TURN
+test; without it (or with `SKIP_INTEGRATION=1`) the integration suites skip.
+
 `SKIP_INTEGRATION=1` is honored by tests that open real sockets / reach external
-STUN/TURN servers — set it when working offline. CI (`.github/workflows/test.yml`)
-runs the full suite against Node 18/20/22 with a `coturn` TURN server sidecar
-(users `testuser:testpass`, `nodertc:nodertcpass`, realm `nodertc.local`).
+STUN/TURN servers — set it when working offline. CI runs the full suite against
+Node 20/22/24 with a `coturn` TURN server sidecar (users `testuser:testpass`,
+`nodertc:nodertcpass`, realm `nodertc.local`).
 
 ## Architecture
 
