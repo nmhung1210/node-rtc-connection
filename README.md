@@ -1,4 +1,4 @@
-# NodeRTC
+# node-rtc-connection
 
 A from-scratch, pure-Node.js WebRTC data-channel implementation that
 **interoperates with browsers**. No native dependencies — the entire ICE / DTLS
@@ -374,11 +374,11 @@ createPeerConnection().catch(console.error);
 
 The package includes runnable examples in `examples/`:
 
-- **`examples/node-to-node.ts`** — Two NodeRTC peers in one process establish a
-  real data channel and exchange string + binary messages. The quickest way to
-  see the full ICE/DTLS/SCTP stack work.
+- **`examples/node-to-node.ts`** — Two node-rtc-connection peers in one process
+  establish a real data channel and exchange string + binary messages. The
+  quickest way to see the full ICE/DTLS/SCTP stack work.
 - **`examples/browser-server.ts`** + **`examples/browser-client.html`** — A
-  Node.js HTTP server that runs a NodeRTC peer (the offerer) and serves a chat
+  Node.js HTTP server that runs a node-rtc-connection peer (the offerer) and serves a chat
   page. A browser opens the page, runs its native `RTCPeerConnection` as the
   answerer, and the two establish a genuine WebRTC data channel over UDP.
 
