@@ -588,11 +588,20 @@ class DtlsConnection extends EventEmitter {
     const cookie = body.slice(o + 1, o + 1 + cookieLen);
     o += 1 + cookieLen;
     const csLen = body.readUInt16BE(o);
+    const cipherSuites = body.slice(o + 2, o + 2 + csLen);
     o += 2 + csLen;
     const compLen = body.readUInt8(o);
     o += 1 + compLen;
     // Extensions
     let emsRequested = false;
+    // Secure renegotiation (RFC 5746): the client signals support via the
+    // renegotiation_info extension or the SCSV cipher (0x00FF). OpenSSL 3.x
+    // requires the server to acknowledge it, or it aborts with
+    // handshake_failure; older OpenSSL and browsers tolerate its absence.
+    let renegRequested = false;
+    for (let i = 0; i + 1 < cipherSuites.length; i += 2) {
+      if (cipherSuites.readUInt16BE(i) === 0x00ff) renegRequested = true;
+    }
     if (o + 2 <= body.length) {
       const extLen = body.readUInt16BE(o);
       o += 2;
@@ -602,9 +611,11 @@ class DtlsConnection extends EventEmitter {
         const elen = body.readUInt16BE(o + 2);
         o += 4;
         if (etype === P.EXTENSION.EXTENDED_MASTER_SECRET) emsRequested = true;
+        if (etype === P.EXTENSION.RENEGOTIATION_INFO) renegRequested = true;
         o += elen;
       }
     }
+    this._renegRequested = renegRequested;
 
     if (cookie.length === 0) {
       // Stateless cookie exchange: reply with HelloVerifyRequest. Not part of
@@ -710,6 +721,11 @@ class DtlsConnection extends EventEmitter {
       exts.push(this._ext(P.EXTENSION.EXTENDED_MASTER_SECRET, Buffer.alloc(0)));
     }
     exts.push(this._ext(P.EXTENSION.EC_POINT_FORMATS, P.vec8(Buffer.from([P.EC_POINT_FORMAT.uncompressed]))));
+    // Acknowledge secure renegotiation with an empty renegotiated_connection
+    // (a 1-byte zero-length vector). Required by OpenSSL 3.x clients.
+    if (this._renegRequested) {
+      exts.push(this._ext(P.EXTENSION.RENEGOTIATION_INFO, P.vec8(Buffer.alloc(0))));
+    }
     parts.push(P.vec16(Buffer.concat(exts)));
     return Buffer.concat(parts);
   }
