@@ -1,0 +1,20 @@
+{
+  "all": true,
+  "src": ["src"],
+  "include": ["src/**/*.js"],
+  "exclude": [
+    "test/**",
+    "examples/**",
+    "dist/**",
+    "scripts/**",
+    "rollup.config.mjs"
+  ],
+  "reporter": ["text", "text-summary", "lcov"],
+  "report-dir": "coverage",
+  "clean": true,
+  "//thresholds": "Regression guard, a few points below actuals (lines ~91, branches ~81, funcs ~90). Enforced only with --check-coverage (CI), since a full run needs coturn + Chromium.",
+  "lines": 88,
+  "branches": 77,
+  "functions": 85
+}
+
