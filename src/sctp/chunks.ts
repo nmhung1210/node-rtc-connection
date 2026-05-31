@@ -1,5 +1,5 @@
 /**
- * @file chunks.js
+ * @file chunks.ts
  * @description SCTP common header and chunk encode/parse (RFC 4960 + RFC 8260
  * for I-DATA is NOT used; classic DATA only). Scoped to the WebRTC profile.
  * @module sctp/chunks
@@ -7,7 +7,7 @@
 
 'use strict';
 
-const CHUNK_TYPE = Object.freeze({
+export const CHUNK_TYPE = Object.freeze({
   DATA: 0,
   INIT: 1,
   INIT_ACK: 2,
@@ -24,7 +24,7 @@ const CHUNK_TYPE = Object.freeze({
   FORWARD_TSN: 192, // 0xC0
 });
 
-const PARAM_TYPE = Object.freeze({
+export const PARAM_TYPE = Object.freeze({
   HEARTBEAT_INFO: 1,
   STATE_COOKIE: 7,
   UNRECOGNIZED_PARAM: 8,
@@ -36,7 +36,7 @@ const PARAM_TYPE = Object.freeze({
 });
 
 // Payload Protocol Identifiers used by WebRTC data channels (RFC 8831).
-const PPID = Object.freeze({
+export const PPID = Object.freeze({
   DCEP: 50,
   STRING: 51,
   BINARY: 53,
@@ -46,8 +46,86 @@ const PPID = Object.freeze({
   BINARY_PARTIAL: 52, // deprecated
 });
 
+export interface CommonHeader {
+  srcPort: number;
+  dstPort: number;
+  verificationTag: number;
+  checksum: number;
+}
+
+export interface ParsedChunk {
+  type: number;
+  flags: number;
+  length: number;
+  body: Buffer;
+}
+
+export interface ParsedParam {
+  type: number;
+  length: number;
+  value: Buffer;
+}
+
+export interface InitBodyParams {
+  initiateTag: number;
+  a_rwnd: number;
+  outStreams: number;
+  inStreams: number;
+  initialTSN: number;
+}
+
+export interface ParsedInitBody {
+  initiateTag: number;
+  a_rwnd: number;
+  outStreams: number;
+  inStreams: number;
+  initialTSN: number;
+  params: ParsedParam[];
+}
+
+export interface DataBodyParams {
+  tsn: number;
+  streamId: number;
+  streamSeq: number;
+  ppid: number;
+  userData: Buffer;
+  unordered?: boolean;
+  beginning?: boolean;
+  ending?: boolean;
+}
+
+export interface EncodedDataBody {
+  flags: number;
+  body: Buffer;
+}
+
+export interface ParsedDataBody {
+  unordered: boolean;
+  beginning: boolean;
+  ending: boolean;
+  tsn: number;
+  streamId: number;
+  streamSeq: number;
+  ppid: number;
+  userData: Buffer;
+}
+
+export interface SackBodyParams {
+  cumulativeTSNAck: number;
+  a_rwnd: number;
+  gapBlocks?: Array<[number, number]>;
+  dupTSNs?: number[];
+}
+
+export interface ParsedSackBody {
+  cumulativeTSNAck: number;
+  a_rwnd: number;
+  gapBlocks: Array<[number, number]>;
+  dupTSNs: number[];
+}
+
 /** Round a length up to the next 4-byte boundary. */
-function pad4(n) {
+export function pad4(n: number): number {
   return (n + 3) & ~3;
 }
 
@@ -58,7 +136,7 @@ function pad4(n) {
  * @param {number} verificationTag
  * @returns {Buffer}
  */
-function encodeCommonHeader(srcPort, dstPort, verificationTag) {
+export function encodeCommonHeader(srcPort: number, dstPort: number, verificationTag: number): Buffer {
   const h = Buffer.alloc(12);
   h.writeUInt16BE(srcPort, 0);
   h.writeUInt16BE(dstPort, 2);
@@ -72,7 +150,7 @@ function encodeCommonHeader(srcPort, dstPort, verificationTag) {
  * @param {Buffer} packet
  * @returns {{srcPort:number,dstPort:number,verificationTag:number,checksum:number}}
  */
-function parseCommonHeader(packet) {
+export function parseCommonHeader(packet: Buffer): CommonHeader {
   return {
     srcPort: packet.readUInt16BE(0),
     dstPort: packet.readUInt16BE(2),
@@ -88,7 +166,7 @@ function parseCommonHeader(packet) {
  * @param {Buffer} body
  * @returns {Buffer}
  */
-function encodeChunk(type, flags, body) {
+export function encodeChunk(type: number, flags: number, body: Buffer): Buffer {
   const len = 4 + body.length;
   const out = Buffer.alloc(pad4(len));
   out.writeUInt8(type, 0);
@@ -103,8 +181,8 @@ function encodeChunk(type, flags, body) {
  * @param {Buffer} packet
  * @returns {Array<{type:number,flags:number,length:number,body:Buffer}>}
  */
-function parseChunks(packet) {
-  const chunks = [];
+export function parseChunks(packet: Buffer): ParsedChunk[] {
+  const chunks: ParsedChunk[] = [];
   let off = 12;
   while (off + 4 <= packet.length) {
     const type = packet.readUInt8(off);
@@ -124,7 +202,7 @@ function parseChunks(packet) {
  * @param {Buffer} value
  * @returns {Buffer}
  */
-function encodeParam(type, value) {
+export function encodeParam(type: number, value: Buffer): Buffer {
   const len = 4 + value.length;
   const out = Buffer.alloc(pad4(len));
   out.writeUInt16BE(type, 0);
@@ -138,8 +216,8 @@ function encodeParam(type, value) {
  * @param {Buffer} buf
  * @returns {Array<{type:number,length:number,value:Buffer}>}
  */
-function parseParams(buf) {
-  const params = [];
+export function parseParams(buf: Buffer): ParsedParam[] {
+  const params: ParsedParam[] = [];
   let off = 0;
   while (off + 4 <= buf.length) {
     const type = buf.readUInt16BE(off);
@@ -161,7 +239,7 @@ function parseParams(buf) {
  * @param {number} p.initialTSN
  * @returns {Buffer}
  */
-function encodeInitBody({ initiateTag, a_rwnd, outStreams, inStreams, initialTSN }) {
+export function encodeInitBody({ initiateTag, a_rwnd, outStreams, inStreams, initialTSN }: InitBodyParams): Buffer {
   const b = Buffer.alloc(16);
   b.writeUInt32BE(initiateTag >>> 0, 0);
   b.writeUInt32BE(a_rwnd >>> 0, 4);
@@ -176,7 +254,7 @@ function encodeInitBody({ initiateTag, a_rwnd, outStreams, inStreams, initialTSN
  * @param {Buffer} body
  * @returns {{initiateTag:number,a_rwnd:number,outStreams:number,inStreams:number,initialTSN:number,params:Array}}
  */
-function parseInitBody(body) {
+export function parseInitBody(body: Buffer): ParsedInitBody {
   return {
     initiateTag: body.readUInt32BE(0),
     a_rwnd: body.readUInt32BE(4),
@@ -197,7 +275,7 @@ function parseInitBody(body) {
  * @param {Buffer} p.userData
  * @returns {{flags:number, body:Buffer}}
  */
-function encodeDataBody({ tsn, streamId, streamSeq, ppid, userData, unordered = false, beginning = true, ending = true }) {
+export function encodeDataBody({ tsn, streamId, streamSeq, ppid, userData, unordered = false, beginning = true, ending = true }: DataBodyParams): EncodedDataBody {
   const head = Buffer.alloc(12);
   head.writeUInt32BE(tsn >>> 0, 0);
   head.writeUInt16BE(streamId, 4);
@@ -215,7 +293,7 @@ function encodeDataBody({ tsn, streamId, streamSeq, ppid, userData, unordered = 
  * @param {number} flags
  * @param {Buffer} body
  */
-function parseDataBody(flags, body) {
+export function parseDataBody(flags: number, body: Buffer): ParsedDataBody {
   return {
     unordered: !!(flags & 0x04),
     beginning: !!(flags & 0x02),
@@ -238,7 +316,7 @@ function parseDataBody(flags, body) {
  * @param {Array<number>} [p.dupTSNs]
  * @returns {Buffer}
  */
-function encodeSackBody({ cumulativeTSNAck, a_rwnd, gapBlocks = [], dupTSNs = [] }) {
+export function encodeSackBody({ cumulativeTSNAck, a_rwnd, gapBlocks = [], dupTSNs = [] }: SackBodyParams): Buffer {
   const b = Buffer.alloc(12 + gapBlocks.length * 4 + dupTSNs.length * 4);
   b.writeUInt32BE(cumulativeTSNAck >>> 0, 0);
   b.writeUInt32BE(a_rwnd >>> 0, 4);
@@ -255,37 +333,18 @@ function encodeSackBody({ cumulativeTSNAck, a_rwnd, gapBlocks = [], dupTSNs = []
 /**
  * Parse a SACK chunk body.
  */
-function parseSackBody(body) {
+export function parseSackBody(body: Buffer): ParsedSackBody {
   const cumulativeTSNAck = body.readUInt32BE(0);
   const a_rwnd = body.readUInt32BE(4);
   const numGap = body.readUInt16BE(8);
   const numDup = body.readUInt16BE(10);
-  const gapBlocks = [];
+  const gapBlocks: Array<[number, number]> = [];
   let o = 12;
   for (let i = 0; i < numGap; i++) {
     gapBlocks.push([body.readUInt16BE(o), body.readUInt16BE(o + 2)]);
     o += 4;
   }
-  const dupTSNs = [];
+  const dupTSNs: number[] = [];
   for (let i = 0; i < numDup; i++) { dupTSNs.push(body.readUInt32BE(o)); o += 4; }
   return { cumulativeTSNAck, a_rwnd, gapBlocks, dupTSNs };
 }
-
-module.exports = {
-  CHUNK_TYPE,
-  PARAM_TYPE,
-  PPID,
-  pad4,
-  encodeCommonHeader,
-  parseCommonHeader,
-  encodeChunk,
-  parseChunks,
-  encodeParam,
-  parseParams,
-  encodeInitBody,
-  parseInitBody,
-  encodeDataBody,
-  parseDataBody,
-  encodeSackBody,
-  parseSackBody,
-};

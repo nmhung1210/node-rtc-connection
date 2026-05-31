@@ -1,5 +1,5 @@
 /**
- * @file transport-stack.js
+ * @file transport-stack.ts
  * @description Composes ICE -> DTLS -> SCTP -> DCEP into one transport, the
  * real WebRTC data-channel pipeline.
  * @module transport-stack
@@ -15,26 +15,35 @@
  * (INIT initiator) is the DTLS client, per RFC 8832.
  */
 
-'use strict';
+import { EventEmitter } from 'events';
+import { IceAgent } from './ice/ice-agent';
+import { DtlsConnection, ROLE as DTLS_ROLE } from './dtls/connection';
+import { SctpAssociation } from './sctp/association';
+import { DataChannelManager, OpenRequestInfo } from './sctp/datachannel-manager';
+import type { RTCDataChannel, RTCDataChannelInit } from './datachannel/RTCDataChannel';
+import type { KeyObject } from 'crypto';
 
-const EventEmitter = require('events');
-const { IceAgent } = require('./ice/ice-agent');
-const { DtlsConnection, ROLE: DTLS_ROLE } = require('./dtls/connection');
-const { SctpAssociation } = require('./sctp/association');
-const { DataChannelManager } = require('./sctp/datachannel-manager');
+export interface TransportStackOptions {
+  /** ICE controlling vs controlled (offerer is controlling). */
+  iceRole: 'controlling' | 'controlled';
+  /** DTLS role from a=setup (active=client). */
+  dtlsRole: 'client' | 'server';
+  localUfrag: string;
+  localPwd: string;
+  certDer: Buffer;
+  privateKey: KeyObject;
+  verifyFingerprint?: (fp: { algorithm: string; value: string }) => boolean;
+}
 
-class TransportStack extends EventEmitter {
-  /**
-   * @param {Object} opts
-   * @param {'controlling'|'controlled'} opts.iceRole
-   * @param {'client'|'server'} opts.dtlsRole - from a=setup (active=client)
-   * @param {string} opts.localUfrag
-   * @param {string} opts.localPwd
-   * @param {Buffer} opts.certDer
-   * @param {crypto.KeyObject} opts.privateKey
-   * @param {(fp:{algorithm:string,value:string})=>boolean} opts.verifyFingerprint
-   */
-  constructor(opts) {
+export class TransportStack extends EventEmitter {
+  private _opts: TransportStackOptions;
+  ice: IceAgent;
+  dtls: DtlsConnection | null;
+  sctp: SctpAssociation | null;
+  dcm: DataChannelManager | null;
+  private _dtlsStarted: boolean;
+
+  constructor(opts: TransportStackOptions) {
     super();
     this._opts = opts;
     this.ice = new IceAgent({
@@ -52,7 +61,7 @@ class TransportStack extends EventEmitter {
     this.ice.on('failed', () => this.emit('error', new Error('ICE failed')));
 
     // Inbound DTLS datagrams from the selected/learned path.
-    this.ice.on('data', (msg) => {
+    this.ice.on('data', (msg: Buffer) => {
       if (this.dtls) this.dtls.handlePacket(msg);
     });
 
@@ -64,27 +73,27 @@ class TransportStack extends EventEmitter {
 
   /**
    * Begin gathering local candidates.
-   * @param {Object} [opts] - { iceServers, iceTransportPolicy } forwarded to ICE.
+   * @param opts - { iceServers, iceTransportPolicy } forwarded to ICE.
    */
-  async gather(opts = {}) {
-    await this.ice.gather(opts);
+  async gather(opts: { iceServers?: unknown[]; iceTransportPolicy?: 'all' | 'relay' } = {}): Promise<void> {
+    await this.ice.gather(opts as any);
   }
 
-  getLocalCandidates() {
+  getLocalCandidates(): ReturnType<IceAgent['getLocalCandidates']> {
     return this.ice.getLocalCandidates();
   }
 
   /** Provide the peer's ICE credentials and start checks when ready. */
-  setRemote(ufrag, pwd) {
+  setRemote(ufrag: string, pwd: string): void {
     this.ice.setRemoteCredentials(ufrag, pwd);
     this.ice.start();
   }
 
-  addRemoteCandidate(cand) {
+  addRemoteCandidate(cand: { address: string; port: number; type?: string; priority?: number }): void {
     this.ice.addRemoteCandidate(cand);
   }
 
-  _startDtls() {
+  private _startDtls(): void {
     if (this._dtlsStarted) return;
     this._dtlsStarted = true;
 
@@ -93,7 +102,7 @@ class TransportStack extends EventEmitter {
       certDer: this._opts.certDer,
       privateKey: this._opts.privateKey,
       verifyFingerprint: this._opts.verifyFingerprint,
-      output: (datagram) => {
+      output: (datagram: Buffer) => {
         try { this.ice.send(datagram); } catch (e) { this.emit('error', e); }
       },
     });
@@ -102,7 +111,7 @@ class TransportStack extends EventEmitter {
       this.emit('dtlsconnected');
       this._startSctp();
     });
-    this.dtls.on('data', (record) => {
+    this.dtls.on('data', (record: Buffer) => {
       if (this.sctp) this.sctp.receivePacket(record);
     });
     this.dtls.on('error', (e) => this.emit('error', e));
@@ -111,46 +120,46 @@ class TransportStack extends EventEmitter {
     this.dtls.start();
   }
 
-  _startSctp() {
+  private _startSctp(): void {
     const isClient = this._opts.dtlsRole === 'client';
-    this.sctp = new SctpAssociation({ isClient });
-    this.sctp.on('output', (pkt) => {
-      try { this.dtls.send(pkt); } catch (e) { this.emit('error', e); }
+    const sctp = new SctpAssociation({ isClient });
+    this.sctp = sctp;
+    sctp.on('output', (pkt: Buffer) => {
+      try { if (this.dtls) this.dtls.send(pkt); } catch (e) { this.emit('error', e); }
     });
-    this.sctp.on('error', (e) => this.emit('error', e));
-    this.sctp.on('close', () => this.emit('close'));
+    sctp.on('error', (e) => this.emit('error', e));
+    sctp.on('close', () => this.emit('close'));
 
-    this.dcm = new DataChannelManager(this.sctp, isClient);
-    this.dcm.on('open-request', (info) => this.emit('datachannel-request', info));
+    this.dcm = new DataChannelManager(sctp, isClient);
+    this.dcm.on('open-request', (info: OpenRequestInfo) => this.emit('datachannel-request', info));
 
-    this.sctp.on('established', () => {
+    sctp.on('established', () => {
       this.emit('sctpconnected');
       this.emit('ready');
     });
 
-    this.sctp.start();
+    sctp.start();
   }
 
   /** Open a locally-initiated data channel once SCTP is established. */
-  openChannel(channel, init) {
+  openChannel(channel: RTCDataChannel, init: RTCDataChannelInit): void {
     if (!this.dcm) throw new Error('SCTP not ready');
     this.dcm.openChannel(channel, init);
   }
 
   /** Accept an inbound channel created from a 'datachannel-request'. */
-  acceptChannel(channel, info) {
+  acceptChannel(channel: RTCDataChannel, info: OpenRequestInfo): void {
+    if (!this.dcm) throw new Error('SCTP not ready');
     this.dcm.acceptChannel(channel, info);
   }
 
-  isReady() {
-    return this.sctp && this.sctp.state === 'established';
+  isReady(): boolean {
+    return !!this.sctp && this.sctp.state === 'established';
   }
 
-  close() {
-    if (this.sctp) try { this.sctp.shutdown(); } catch (_) {}
-    if (this.dtls) try { this.dtls.close(); } catch (_) {}
-    if (this.ice) try { this.ice.close(); } catch (_) {}
+  close(): void {
+    if (this.sctp) try { this.sctp.shutdown(); } catch { /* best-effort */ }
+    if (this.dtls) try { this.dtls.close(); } catch { /* best-effort */ }
+    if (this.ice) try { this.ice.close(); } catch { /* best-effort */ }
   }
 }
-
-module.exports = { TransportStack };

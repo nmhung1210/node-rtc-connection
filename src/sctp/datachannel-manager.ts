@@ -1,5 +1,5 @@
 /**
- * @file datachannel-manager.js
+ * @file datachannel-manager.ts
  * @description Bridges SCTP streams + DCEP to RTCDataChannel instances.
  * @module sctp/datachannel-manager
  *
@@ -13,23 +13,54 @@
 
 'use strict';
 
-const EventEmitter = require('events');
-const dcep = require('./dcep');
-const { PPID } = require('./chunks');
+import { EventEmitter } from 'events';
+import * as dcep from './dcep';
+import { PPID } from './chunks';
+import type { SctpAssociation, SctpMessage } from './association';
+import type { RTCDataChannel } from '../datachannel/RTCDataChannel';
+
+/** Subset of RTCDataChannelInit used when opening/accepting channels. */
+interface ChannelInit {
+  ordered?: boolean;
+  maxRetransmits?: number | null;
+  maxPacketLifeTime?: number | null;
+  protocol?: string;
+}
+
+/** A locally tracked channel and whether its DCEP open has been acked. */
+interface ChannelEntry {
+  channel: RTCDataChannel;
+  acked: boolean;
+}
+
+/** Information surfaced on the 'open-request' event for an inbound channel. */
+export interface OpenRequestInfo {
+  streamId: number;
+  label: string;
+  protocol: string;
+  ordered: boolean;
+  channelType: number;
+  reliabilityParameter: number;
+}
 
 class DataChannelManager extends EventEmitter {
+  private _sctp: SctpAssociation;
+  _isDtlsClient: boolean;
+  private _channels: Map<number, ChannelEntry>; // streamId -> { channel, acked }
+  private _nextStreamId: number;
+
   /**
    * @param {import('./association').SctpAssociation} association
    * @param {boolean} isDtlsClient - true if we are the DTLS client (even IDs)
    */
-  constructor(association, isDtlsClient) {
+  constructor(association: SctpAssociation, isDtlsClient: boolean) {
     super();
     this._sctp = association;
     this._isDtlsClient = isDtlsClient;
     this._channels = new Map(); // streamId -> { channel, acked }
     this._nextStreamId = isDtlsClient ? 0 : 1;
 
-    this._sctp.on('message', (m) => this._onSctpMessage(m));
+    this._sctp.on('message', (m: SctpMessage) => this._onSctpMessage(m));
   }
 
   /**
@@ -37,7 +68,7 @@ class DataChannelManager extends EventEmitter {
    * @param {import('../datachannel/RTCDataChannel').RTCDataChannel} channel
    * @param {Object} init - { ordered, maxRetransmits, maxPacketLifeTime, protocol }
    */
-  openChannel(channel, init = {}) {
+  openChannel(channel: RTCDataChannel, init: ChannelInit = {}): void {
     let streamId = channel.id;
     if (streamId === null || streamId === undefined) {
       streamId = this._allocateStreamId();
@@ -58,19 +89,19 @@ class DataChannelManager extends EventEmitter {
       // Negotiated=false channels open after receiving DATA_CHANNEL_ACK.
     } else {
       // Pre-negotiated: considered open immediately.
-      this._channels.get(streamId).acked = true;
+      (this._channels.get(streamId) as ChannelEntry).acked = true;
       channel._setStateToOpen();
     }
   }
 
-  _allocateStreamId() {
+  private _allocateStreamId(): number {
     let id = this._nextStreamId;
     while (this._channels.has(id)) id += 2;
     this._nextStreamId = id + 2;
     return id;
   }
 
-  _channelType(init) {
+  private _channelType(init: ChannelInit): number {
     const unordered = init.ordered === false;
     if (init.maxRetransmits != null) {
       return unordered
@@ -85,17 +116,17 @@ class DataChannelManager extends EventEmitter {
     return unordered ? dcep.CHANNEL_TYPE.RELIABLE_UNORDERED : dcep.CHANNEL_TYPE.RELIABLE;
   }
 
-  _reliabilityParam(init) {
+  private _reliabilityParam(init: ChannelInit): number {
     if (init.maxRetransmits != null) return init.maxRetransmits >>> 0;
     if (init.maxPacketLifeTime != null) return init.maxPacketLifeTime >>> 0;
     return 0;
   }
 
   /** Wire channel.send() -> SCTP DATA with the right PPID and ordering. */
-  _attachSender(channel, streamId, init) {
+  private _attachSender(channel: RTCDataChannel, streamId: number, init: ChannelInit): void {
     const unordered = init.ordered === false;
-    channel._setSender((data, isBinary) => {
-      let ppid;
+    channel._setSender((data: Buffer, isBinary: boolean) => {
+      let ppid: number;
       if (isBinary) {
         ppid = data.length === 0 ? PPID.BINARY_EMPTY : PPID.BINARY;
       } else {
@@ -107,7 +138,7 @@ class DataChannelManager extends EventEmitter {
     });
   }
 
-  _onSctpMessage(m) {
+  private _onSctpMessage(m: SctpMessage): void {
     if (m.ppid === PPID.DCEP) {
       this._onDcep(m);
       return;
@@ -120,7 +151,7 @@ class DataChannelManager extends EventEmitter {
     entry.channel._receiveMessage(data, isBinary);
   }
 
-  _onDcep(m) {
+  private _onDcep(m: SctpMessage): void {
     const type = dcep.messageType(m.data);
     if (type === dcep.MESSAGE_TYPE.DATA_CHANNEL_OPEN) {
       const open = dcep.decodeOpen(m.data);
@@ -147,7 +178,7 @@ class DataChannelManager extends EventEmitter {
    * Register an inbound channel (created in response to 'open-request') and
    * attach its sender.
    */
-  acceptChannel(channel, info) {
+  acceptChannel(channel: RTCDataChannel, info: OpenRequestInfo): void {
     channel._setId(info.streamId);
     this._channels.set(info.streamId, { channel, acked: true });
     this._attachSender(channel, info.streamId, { ordered: info.ordered });
@@ -155,4 +186,4 @@ class DataChannelManager extends EventEmitter {
   }
 }
 
-module.exports = { DataChannelManager };
+export { DataChannelManager };

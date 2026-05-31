@@ -1,5 +1,5 @@
 /**
- * @file stun-message.js
+ * @file stun-message.ts
  * @description STUN message codec for ICE connectivity checks (RFC 5389 / 8445).
  * @module ice/stun-message
  *
@@ -12,25 +12,25 @@
 
 'use strict';
 
-const crypto = require('crypto');
+import * as crypto from 'crypto';
 
-const MAGIC_COOKIE = 0x2112a442;
+export const MAGIC_COOKIE = 0x2112a442;
 
-const METHOD = Object.freeze({ BINDING: 0x0001 });
-const CLASS = Object.freeze({
+export const METHOD = Object.freeze({ BINDING: 0x0001 });
+export const CLASS = Object.freeze({
   REQUEST: 0x000,
   INDICATION: 0x010,
   SUCCESS: 0x100,
   ERROR: 0x110,
 });
 
-const MSG_TYPE = Object.freeze({
+export const MSG_TYPE = Object.freeze({
   BINDING_REQUEST: 0x0001,
   BINDING_SUCCESS: 0x0101,
   BINDING_ERROR: 0x0111,
 });
 
-const ATTR = Object.freeze({
+export const ATTR = Object.freeze({
   MAPPED_ADDRESS: 0x0001,
   USERNAME: 0x0006,
   MESSAGE_INTEGRITY: 0x0008,
@@ -43,12 +43,26 @@ const ATTR = Object.freeze({
   ICE_CONTROLLING: 0x802a,
 });
 
-function pad4(n) {
+/** A single STUN attribute pending serialization. */
+interface StunAttribute {
+  type: number;
+  value: Buffer;
+}
+
+/** Shape of a parsed STUN message. */
+export interface ParsedStunMessage {
+  type: number;
+  transactionId: Buffer;
+  attrs: Map<number, Buffer>;
+  raw: Buffer;
+}
+
+function pad4(n: number): number {
   return (n + 3) & ~3;
 }
 
 /** CRC-32 (IEEE) for the FINGERPRINT attribute. */
-const CRC_TABLE = (() => {
+const CRC_TABLE: Uint32Array = (() => {
   const t = new Uint32Array(256);
   for (let n = 0; n < 256; n++) {
     let c = n;
@@ -57,9 +71,9 @@ const CRC_TABLE = (() => {
   }
   return t;
 })();
-function crc32(buf) {
+export function crc32(buf: Buffer): number {
   let crc = 0xffffffff;
-  for (let i = 0; i < buf.length; i++) crc = CRC_TABLE[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
+  for (let i = 0; i < buf.length; i++) crc = CRC_TABLE[(crc ^ buf[i]!) & 0xff]! ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 
@@ -68,47 +82,51 @@ function crc32(buf) {
  * @description Incrementally builds a STUN message, then appends
  * MESSAGE-INTEGRITY and FINGERPRINT with the correct length pre-computation.
  */
-class StunMessageBuilder {
-  constructor(type, transactionId) {
+export class StunMessageBuilder {
+  type: number;
+  transactionId: Buffer;
+  attrs: StunAttribute[];
+
+  constructor(type: number, transactionId?: Buffer) {
     this.type = type;
     this.transactionId = transactionId || crypto.randomBytes(12);
     this.attrs = []; // {type, value}
   }
 
-  addAttr(type, value) {
+  addAttr(type: number, value: Buffer): this {
     this.attrs.push({ type, value });
     return this;
   }
 
-  addUsername(username) {
+  addUsername(username: string): this {
     return this.addAttr(ATTR.USERNAME, Buffer.from(username, 'utf8'));
   }
 
-  addPriority(priority) {
+  addPriority(priority: number): this {
     const b = Buffer.alloc(4);
     b.writeUInt32BE(priority >>> 0, 0);
     return this.addAttr(ATTR.PRIORITY, b);
   }
 
-  addIceControlling(tieBreaker) {
+  addIceControlling(tieBreaker: Buffer): this {
     return this.addAttr(ATTR.ICE_CONTROLLING, tieBreaker);
   }
 
-  addIceControlled(tieBreaker) {
+  addIceControlled(tieBreaker: Buffer): this {
     return this.addAttr(ATTR.ICE_CONTROLLED, tieBreaker);
   }
 
-  addUseCandidate() {
+  addUseCandidate(): this {
     return this.addAttr(ATTR.USE_CANDIDATE, Buffer.alloc(0));
   }
 
-  addXorMappedAddress(address, port) {
+  addXorMappedAddress(address: string, port: number): this {
     return this.addAttr(ATTR.XOR_MAPPED_ADDRESS, encodeXorAddress(address, port, this.transactionId));
   }
 
-  /** Serialize the attributes added so far with a given total body length. */
-  _encodeBody(extraLen) {
-    const parts = [];
+  /** Serialize the attributes added so far. */
+  _encodeBody(): Buffer {
+    const parts: Buffer[] = [];
     for (const a of this.attrs) {
       const head = Buffer.alloc(4);
       head.writeUInt16BE(a.type, 0);
@@ -120,7 +138,7 @@ class StunMessageBuilder {
     return Buffer.concat(parts);
   }
 
-  _header(bodyLen) {
+  _header(bodyLen: number): Buffer {
     const h = Buffer.alloc(20);
     h.writeUInt16BE(this.type, 0);
     h.writeUInt16BE(bodyLen, 2);
@@ -136,7 +154,7 @@ class StunMessageBuilder {
    * @param {string} [password] - ICE password for MESSAGE-INTEGRITY
    * @returns {Buffer}
    */
-  build(password) {
+  build(password?: string): Buffer {
     let body = this._encodeBody();
 
     if (password) {
@@ -169,13 +187,13 @@ class StunMessageBuilder {
 }
 
 /** Encode a XOR-MAPPED-ADDRESS attribute value (IPv4). */
-function encodeXorAddress(address, port, transactionId) {
+function encodeXorAddress(address: string, port: number, _transactionId: Buffer): Buffer {
   const buf = Buffer.alloc(8);
   buf.writeUInt8(0, 0);
   buf.writeUInt8(0x01, 1); // family IPv4
   buf.writeUInt16BE(port ^ (MAGIC_COOKIE >>> 16), 2);
   const parts = address.split('.').map(Number);
-  const addrInt = ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+  const addrInt = ((parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!) >>> 0;
   buf.writeUInt32BE((addrInt ^ MAGIC_COOKIE) >>> 0, 4);
   return buf;
 }
@@ -185,14 +203,14 @@ function encodeXorAddress(address, port, transactionId) {
  * @param {Buffer} msg
  * @returns {null|{type:number,transactionId:Buffer,attrs:Map<number,Buffer>,raw:Buffer}}
  */
-function parse(msg) {
+export function parse(msg: Buffer): ParsedStunMessage | null {
   if (msg.length < 20) return null;
   if (msg.readUInt32BE(4) !== MAGIC_COOKIE) return null;
   const type = msg.readUInt16BE(0);
   const length = msg.readUInt16BE(2);
   if (20 + length > msg.length) return null;
   const transactionId = msg.slice(8, 20);
-  const attrs = new Map();
+  const attrs = new Map<number, Buffer>();
   let off = 20;
   const end = 20 + length;
   while (off + 4 <= end) {
@@ -212,7 +230,7 @@ function parse(msg) {
  * @param {string} password
  * @returns {boolean}
  */
-function verifyIntegrity(msg, password) {
+export function verifyIntegrity(msg: Buffer, password: string): boolean {
   // Locate the MESSAGE-INTEGRITY attribute.
   const length = msg.readUInt16BE(2);
   let off = 20;
@@ -240,15 +258,3 @@ function verifyIntegrity(msg, password) {
     .digest();
   return provided.length === hmac.length && crypto.timingSafeEqual(provided, hmac);
 }
-
-module.exports = {
-  MAGIC_COOKIE,
-  METHOD,
-  CLASS,
-  MSG_TYPE,
-  ATTR,
-  StunMessageBuilder,
-  parse,
-  verifyIntegrity,
-  crc32,
-};

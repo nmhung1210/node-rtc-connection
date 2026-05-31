@@ -1,5 +1,5 @@
 /**
- * @file x509.js
+ * @file x509.ts
  * @description Self-signed X.509 v3 certificate generation for WebRTC DTLS.
  * @module crypto/x509
  *
@@ -12,11 +12,35 @@
 
 'use strict';
 
-const crypto = require('crypto');
-const der = require('./der');
+import * as crypto from 'crypto';
+import * as der from './der';
+
+/**
+ * Options for {@link generateSelfSigned}.
+ */
+export interface GenerateSelfSignedOptions {
+  /** CN; WebRTC uses a random value. */
+  commonName?: string;
+  /** Validity period in days. */
+  days?: number;
+  /** Override start time (default: now - 1 day). */
+  notBefore?: Date;
+}
+
+/**
+ * Result of {@link generateSelfSigned}.
+ */
+export interface SelfSignedCertificate {
+  /** DER-encoded certificate. */
+  certDer: Buffer;
+  privateKey: crypto.KeyObject;
+  publicKey: crypto.KeyObject;
+  notBefore: Date;
+  notAfter: Date;
+}
 
 // OIDs used in the certificate.
-const OID = Object.freeze({
+export const OID = Object.freeze({
   ecPublicKey: '1.2.840.10045.2.1',
   prime256v1: '1.2.840.10045.3.1.7',
   ecdsaWithSHA256: '1.2.840.10045.4.3.2',
@@ -28,7 +52,7 @@ const OID = Object.freeze({
  * @param {string} cn
  * @returns {Buffer}
  */
-function buildName(cn) {
+function buildName(cn: string): Buffer {
   const attr = der.encodeSequence([
     der.encodeOID(OID.commonName),
     der.encodeUTF8String(cn),
@@ -41,27 +65,21 @@ function buildName(cn) {
  * The AlgorithmIdentifier for ecdsa-with-SHA256 (no parameters).
  * @returns {Buffer}
  */
-function ecdsaWithSHA256AlgId() {
+function ecdsaWithSHA256AlgId(): Buffer {
   return der.encodeSequence([der.encodeOID(OID.ecdsaWithSHA256)]);
 }
 
 /**
  * Generate a self-signed ECDSA P-256 certificate.
  *
- * @param {Object} [options]
- * @param {string} [options.commonName] - CN; WebRTC uses a random value.
- * @param {number} [options.days=30] - Validity period in days.
- * @param {Date}   [options.notBefore] - Override start time (default: now - 1 day).
- * @returns {{
- *   certDer: Buffer,            // DER-encoded certificate
- *   privateKey: crypto.KeyObject,
- *   publicKey: crypto.KeyObject,
- *   notBefore: Date,
- *   notAfter: Date,
- * }}
+ * @param {GenerateSelfSignedOptions} [options]
+ * @returns {SelfSignedCertificate}
  */
-function generateSelfSigned(options = {}) {
-  const commonName = options.commonName || `WebRTC-${crypto.randomBytes(8).toString('hex')}`;
+export function generateSelfSigned(
+  options: GenerateSelfSignedOptions = {}
+): SelfSignedCertificate {
+  const commonName =
+    options.commonName || `WebRTC-${crypto.randomBytes(8).toString('hex')}`;
   const days = options.days || 30;
 
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', {
@@ -69,15 +87,16 @@ function generateSelfSigned(options = {}) {
   });
 
   // Node exports a complete SubjectPublicKeyInfo in DER — reuse verbatim.
-  const spki = publicKey.export({ type: 'spki', format: 'der' });
+  const spki = publicKey.export({ type: 'spki', format: 'der' }) as Buffer;
 
   // Validity. Start one day in the past to tolerate clock skew between peers.
-  const notBefore = options.notBefore || new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const notBefore =
+    options.notBefore || new Date(Date.now() - 24 * 60 * 60 * 1000);
   const notAfter = new Date(notBefore.getTime() + days * 24 * 60 * 60 * 1000);
 
   // Serial number: positive 20-byte random (high bit cleared via encoder).
   const serial = crypto.randomBytes(20);
-  serial[0] &= 0x7f;
+  serial[0]! &= 0x7f;
   if (serial[0] === 0) serial[0] = 0x01;
 
   const name = buildName(commonName);
@@ -113,10 +132,15 @@ function generateSelfSigned(options = {}) {
  * @param {string} [algorithm='sha-256'] - 'sha-256' | 'sha-384' | 'sha-512'
  * @returns {string}
  */
-function fingerprint(certDer, algorithm = 'sha-256') {
+export function fingerprint(
+  certDer: Buffer,
+  algorithm: string = 'sha-256'
+): string {
   const nodeAlgo = algorithm.replace('-', '').toLowerCase(); // sha-256 -> sha256
-  const digest = crypto.createHash(nodeAlgo).update(certDer).digest('hex').toUpperCase();
-  return digest.match(/.{2}/g).join(':');
+  const digest = crypto
+    .createHash(nodeAlgo)
+    .update(certDer)
+    .digest('hex')
+    .toUpperCase();
+  return digest.match(/.{2}/g)!.join(':');
 }
-
-module.exports = { generateSelfSigned, fingerprint, OID };

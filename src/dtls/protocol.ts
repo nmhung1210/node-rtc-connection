@@ -1,5 +1,5 @@
 /**
- * @file protocol.js
+ * @file protocol.ts
  * @description DTLS 1.2 wire-format constants and TLV/vector encoders.
  * @module dtls/protocol
  *
@@ -13,16 +13,16 @@
 'use strict';
 
 // DTLS 1.2 on the wire is version 0xFEFD (i.e. ~1.2).
-const DTLS_1_2 = 0xfefd;
+export const DTLS_1_2 = 0xfefd;
 
-const CONTENT_TYPE = Object.freeze({
+export const CONTENT_TYPE = Object.freeze({
   CHANGE_CIPHER_SPEC: 20,
   ALERT: 21,
   HANDSHAKE: 22,
   APPLICATION_DATA: 23,
 });
 
-const HANDSHAKE_TYPE = Object.freeze({
+export const HANDSHAKE_TYPE = Object.freeze({
   HELLO_REQUEST: 0,
   CLIENT_HELLO: 1,
   SERVER_HELLO: 2,
@@ -36,8 +36,8 @@ const HANDSHAKE_TYPE = Object.freeze({
   FINISHED: 20,
 });
 
-const ALERT_LEVEL = Object.freeze({ WARNING: 1, FATAL: 2 });
-const ALERT_DESC = Object.freeze({
+export const ALERT_LEVEL = Object.freeze({ WARNING: 1, FATAL: 2 });
+export const ALERT_DESC = Object.freeze({
   CLOSE_NOTIFY: 0,
   HANDSHAKE_FAILURE: 40,
   BAD_CERTIFICATE: 42,
@@ -46,19 +46,19 @@ const ALERT_DESC = Object.freeze({
 });
 
 // TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
-const CIPHER_SUITE = 0xc02b;
+export const CIPHER_SUITE = 0xc02b;
 
-const NAMED_GROUP = Object.freeze({ secp256r1: 0x0017 });
-const EC_POINT_FORMAT = Object.freeze({ uncompressed: 0 });
+export const NAMED_GROUP = Object.freeze({ secp256r1: 0x0017 });
+export const EC_POINT_FORMAT = Object.freeze({ uncompressed: 0 });
 
 // SignatureAndHashAlgorithm
-const HASH_ALG = Object.freeze({ sha256: 4, sha384: 5, sha512: 6 });
-const SIG_ALG = Object.freeze({ rsa: 1, ecdsa: 3 });
+export const HASH_ALG = Object.freeze({ sha256: 4, sha384: 5, sha512: 6 });
+export const SIG_ALG = Object.freeze({ rsa: 1, ecdsa: 3 });
 
 // ClientCertificateType
-const CERT_TYPE = Object.freeze({ ecdsa_sign: 64, rsa_sign: 1 });
+export const CERT_TYPE = Object.freeze({ ecdsa_sign: 64, rsa_sign: 1 });
 
-const EXTENSION = Object.freeze({
+export const EXTENSION = Object.freeze({
   SUPPORTED_GROUPS: 10,
   EC_POINT_FORMATS: 11,
   SIGNATURE_ALGORITHMS: 13,
@@ -66,37 +66,56 @@ const EXTENSION = Object.freeze({
   RENEGOTIATION_INFO: 0xff01,
 });
 
-const FINISHED_LABEL = Object.freeze({
+export const FINISHED_LABEL = Object.freeze({
   CLIENT: 'client finished',
   SERVER: 'server finished',
 });
 
+/** A parsed DTLS record from {@link parseRecords}. */
+export interface Record {
+  type: number;
+  version: number;
+  epoch: number;
+  seq: number;
+  fragment: Buffer;
+}
+
+/** A parsed handshake message header from {@link parseHandshake}. */
+export interface Handshake {
+  msgType: number;
+  length: number;
+  messageSeq: number;
+  fragmentOffset: number;
+  fragmentLength: number;
+  body: Buffer;
+}
+
 // ---- Vector / integer encoders -------------------------------------------
 
 /** Encode a uint24 (3 bytes, big-endian). */
-function uint24(n) {
+export function uint24(n: number): Buffer {
   return Buffer.from([(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]);
 }
 
 /** Read a uint24 at offset. */
-function readUint24(buf, off) {
-  return (buf[off] << 16) | (buf[off + 1] << 8) | buf[off + 2];
+export function readUint24(buf: Buffer, off: number): number {
+  return (buf[off]! << 16) | (buf[off + 1]! << 8) | buf[off + 2]!;
 }
 
 /** Length-prefixed vector with a 1-byte length. */
-function vec8(body) {
+export function vec8(body: Buffer): Buffer {
   return Buffer.concat([Buffer.from([body.length]), body]);
 }
 
 /** Length-prefixed vector with a 2-byte length. */
-function vec16(body) {
+export function vec16(body: Buffer): Buffer {
   const len = Buffer.alloc(2);
   len.writeUInt16BE(body.length, 0);
   return Buffer.concat([len, body]);
 }
 
 /** Length-prefixed vector with a 3-byte length. */
-function vec24(body) {
+export function vec24(body: Buffer): Buffer {
   return Buffer.concat([uint24(body.length), body]);
 }
 
@@ -104,14 +123,19 @@ function vec24(body) {
 
 /**
  * Encode a DTLS record (13-byte header + fragment).
- * @param {number} type - CONTENT_TYPE
- * @param {number} epoch
- * @param {number} seq - 48-bit sequence number
- * @param {Buffer} fragment
- * @param {number} [version=DTLS_1_2]
- * @returns {Buffer}
+ * @param type - CONTENT_TYPE
+ * @param epoch
+ * @param seq - 48-bit sequence number
+ * @param fragment
+ * @param version
  */
-function encodeRecord(type, epoch, seq, fragment, version = DTLS_1_2) {
+export function encodeRecord(
+  type: number,
+  epoch: number,
+  seq: number,
+  fragment: Buffer,
+  version: number = DTLS_1_2
+): Buffer {
   const header = Buffer.alloc(13);
   header.writeUInt8(type, 0);
   header.writeUInt16BE(version, 1);
@@ -124,11 +148,10 @@ function encodeRecord(type, epoch, seq, fragment, version = DTLS_1_2) {
 /**
  * Parse one or more DTLS records from a datagram. Multiple records may be
  * packed into a single UDP packet.
- * @param {Buffer} packet
- * @returns {Array<{type:number,version:number,epoch:number,seq:number,fragment:Buffer}>}
+ * @param packet
  */
-function parseRecords(packet) {
-  const records = [];
+export function parseRecords(packet: Buffer): Record[] {
+  const records: Record[] = [];
   let off = 0;
   while (off + 13 <= packet.length) {
     const type = packet.readUInt8(off);
@@ -148,12 +171,15 @@ function parseRecords(packet) {
 
 /**
  * Encode a DTLS handshake message header + body (unfragmented).
- * @param {number} msgType - HANDSHAKE_TYPE
- * @param {number} messageSeq
- * @param {Buffer} body
- * @returns {Buffer}
+ * @param msgType - HANDSHAKE_TYPE
+ * @param messageSeq
+ * @param body
  */
-function encodeHandshake(msgType, messageSeq, body) {
+export function encodeHandshake(
+  msgType: number,
+  messageSeq: number,
+  body: Buffer
+): Buffer {
   const header = Buffer.alloc(12);
   header.writeUInt8(msgType, 0);
   uint24(body.length).copy(header, 1); // length
@@ -165,10 +191,9 @@ function encodeHandshake(msgType, messageSeq, body) {
 
 /**
  * Parse a handshake message header.
- * @param {Buffer} buf - starts at the handshake header
- * @returns {{msgType:number,length:number,messageSeq:number,fragmentOffset:number,fragmentLength:number,body:Buffer}}
+ * @param buf - starts at the handshake header
  */
-function parseHandshake(buf) {
+export function parseHandshake(buf: Buffer): Handshake {
   const msgType = buf.readUInt8(0);
   const length = readUint24(buf, 1);
   const messageSeq = buf.readUInt16BE(4);
@@ -177,28 +202,3 @@ function parseHandshake(buf) {
   const body = buf.slice(12, 12 + fragmentLength);
   return { msgType, length, messageSeq, fragmentOffset, fragmentLength, body };
 }
-
-module.exports = {
-  DTLS_1_2,
-  CONTENT_TYPE,
-  HANDSHAKE_TYPE,
-  ALERT_LEVEL,
-  ALERT_DESC,
-  CIPHER_SUITE,
-  NAMED_GROUP,
-  EC_POINT_FORMAT,
-  HASH_ALG,
-  SIG_ALG,
-  CERT_TYPE,
-  EXTENSION,
-  FINISHED_LABEL,
-  uint24,
-  readUint24,
-  vec8,
-  vec16,
-  vec24,
-  encodeRecord,
-  parseRecords,
-  encodeHandshake,
-  parseHandshake,
-};

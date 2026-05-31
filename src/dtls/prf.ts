@@ -1,5 +1,5 @@
 /**
- * @file prf.js
+ * @file prf.ts
  * @description TLS 1.2 pseudo-random function (RFC 5246 §5) with SHA-256.
  * @module dtls/prf
  *
@@ -9,7 +9,7 @@
 
 'use strict';
 
-const crypto = require('crypto');
+import * as crypto from 'crypto';
 
 /**
  * P_hash(secret, seed) expanded to `length` bytes (RFC 5246 §5).
@@ -17,14 +17,18 @@ const crypto = require('crypto');
  *   A(i) = HMAC(secret, A(i-1))
  *   P_hash = HMAC(secret, A(1)+seed) | HMAC(secret, A(2)+seed) | ...
  *
- * @param {string} hashAlg - Node hash name, e.g. 'sha256'.
- * @param {Buffer} secret
- * @param {Buffer} seed
- * @param {number} length
- * @returns {Buffer}
+ * @param hashAlg - Node hash name, e.g. 'sha256'.
+ * @param secret
+ * @param seed
+ * @param length
  */
-function pHash(hashAlg, secret, seed, length) {
-  const out = [];
+export function pHash(
+  hashAlg: string,
+  secret: Buffer,
+  seed: Buffer,
+  length: number
+): Buffer {
+  const out: Buffer[] = [];
   let total = 0;
   let a = seed; // A(0)
   while (total < length) {
@@ -42,15 +46,17 @@ function pHash(hashAlg, secret, seed, length) {
 /**
  * TLS 1.2 PRF = P_SHA256(secret, label + seed).
  *
- * @param {Buffer} secret
- * @param {string} label - ASCII label, e.g. "master secret".
- * @param {Buffer} seed
- * @param {number} length
- * @returns {Buffer}
+ * @param secret
+ * @param label - ASCII label, e.g. "master secret".
+ * @param seed
+ * @param length
  */
-function prf(secret, label, seed, length) {
+export function prf(
+  secret: Buffer,
+  label: string,
+  seed: Buffer,
+  length: number
+): Buffer {
   const labelAndSeed = Buffer.concat([Buffer.from(label, 'ascii'), seed]);
   return pHash('sha256', secret, labelAndSeed, length);
 }
-
-module.exports = { prf, pHash };

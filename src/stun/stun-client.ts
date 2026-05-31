@@ -1,18 +1,18 @@
 /**
- * @file stun-client.js
+ * @file stun-client.ts
  * @description STUN (Session Traversal Utilities for NAT) client implementation
  * @module stun/stun-client
- * 
+ *
  * STUN Protocol: RFC 5389
  * TURN Protocol: RFC 5766
  */
 
 'use strict';
 
-const dgram = require('dgram');
-const crypto = require('crypto');
+import * as dgram from 'dgram';
+import * as crypto from 'crypto';
 
-const EventEmitter = require('events');
+import { EventEmitter } from 'events';
 
 /**
  * STUN message types
@@ -21,24 +21,24 @@ const STUN_MESSAGE_TYPES = {
   BINDING_REQUEST: 0x0001,
   BINDING_RESPONSE: 0x0101,
   BINDING_ERROR_RESPONSE: 0x0111,
-  
+
   // TURN
   ALLOCATE_REQUEST: 0x0003,
   ALLOCATE_RESPONSE: 0x0103,
   ALLOCATE_ERROR_RESPONSE: 0x0113,
-  
+
   REFRESH_REQUEST: 0x0004,
   REFRESH_RESPONSE: 0x0104,
-  
+
   SEND_INDICATION: 0x0016,
   DATA_INDICATION: 0x0017,
-  
+
   CREATE_PERMISSION_REQUEST: 0x0008,
   CREATE_PERMISSION_RESPONSE: 0x0108,
-  
+
   CHANNEL_BIND_REQUEST: 0x0009,
-  CHANNEL_BIND_RESPONSE: 0x0109
-};
+  CHANNEL_BIND_RESPONSE: 0x0109,
+} as const;
 
 /**
  * STUN attribute types
@@ -48,30 +48,147 @@ const STUN_ATTRIBUTES = {
   USERNAME: 0x0006,
   MESSAGE_INTEGRITY: 0x0008,
   ERROR_CODE: 0x0009,
-  UNKNOWN_ATTRIBUTES: 0x000A,
+  UNKNOWN_ATTRIBUTES: 0x000a,
   REALM: 0x0014,
   NONCE: 0x0015,
   XOR_MAPPED_ADDRESS: 0x0020,
-  
+
   // TURN
-  CHANNEL_NUMBER: 0x000C,
-  LIFETIME: 0x000D,
+  CHANNEL_NUMBER: 0x000c,
+  LIFETIME: 0x000d,
   XOR_PEER_ADDRESS: 0x0012,
   DATA: 0x0013,
   XOR_RELAYED_ADDRESS: 0x0016,
   REQUESTED_TRANSPORT: 0x0019,
-  
-  SOFTWARE: 0x8022,
-  FINGERPRINT: 0x8028
-};
 
-const MAGIC_COOKIE = 0x2112A442;
+  SOFTWARE: 0x8022,
+  FINGERPRINT: 0x8028,
+} as const;
+
+const MAGIC_COOKIE = 0x2112a442;
+
+/**
+ * Constructor options for {@link STUNClient}.
+ */
+interface STUNClientOptions {
+  /** STUN/TURN server address */
+  server: string;
+  /** Server port */
+  port: number;
+  /** TURN username */
+  username?: string;
+  /** TURN password */
+  credential?: string;
+  /** Transport protocol (udp/tcp) */
+  transport?: string;
+  /** Additional query parameters from URL */
+  params?: Record<string, unknown>;
+}
+
+/**
+ * Parsed IPv4 address info.
+ */
+interface AddressInfo {
+  family: string;
+  port: number;
+  address: string;
+}
+
+/**
+ * Reflexive address info resolved from a STUN Binding response.
+ */
+interface ReflexiveAddress {
+  address: string;
+  port: number;
+  family: string;
+}
+
+/**
+ * Relay address info resolved from a TURN Allocate response.
+ */
+interface RelayAddress {
+  relayedAddress: string;
+  relayedPort: number;
+  lifetime: number;
+  type: 'relay';
+}
+
+/**
+ * Result of a TURN Refresh response.
+ */
+interface RefreshResult {
+  lifetime: number;
+}
+
+/**
+ * Result of a generic success response (CreatePermission / ChannelBind).
+ */
+interface OkResult {
+  ok: true;
+}
+
+/**
+ * Union of every result shape a transaction may resolve with.
+ */
+type TransactionResult = ReflexiveAddress | RelayAddress | RefreshResult | OkResult;
+
+/**
+ * A pending request transaction.
+ */
+interface Transaction {
+  type?: string;
+  resolve: (result: TransactionResult) => void;
+  reject: (error: Error) => void;
+}
+
+/**
+ * Parsed STUN attributes object.
+ */
+interface ParsedAttributes {
+  xorMappedAddress?: AddressInfo | null;
+  xorRelayedAddress?: AddressInfo | null;
+  xorPeerAddress?: AddressInfo | null;
+  mappedAddress?: AddressInfo | null;
+  data?: Buffer;
+  lifetime?: number;
+  errorCode?: string;
+  realm?: string;
+  nonce?: string;
+}
+
+/**
+ * Payload emitted with the 'data' event for relayed peer data.
+ */
+interface DataEventInfo {
+  address: string;
+  port: number;
+  family: string;
+}
+
+/**
+ * Build product passed back from a request builder used with auth retry.
+ */
+interface RequestBuild {
+  transactionId: Buffer;
+  request: Buffer;
+}
 
 /**
  * @class STUNClient
  * @description STUN/TURN client for NAT traversal
  */
 class STUNClient extends EventEmitter {
+  server: string;
+  port: number;
+  username: string | undefined;
+  credential: string | undefined;
+  transport: string;
+  params: Record<string, unknown>;
+  socket: dgram.Socket | null;
+  transactions: Map<string, Transaction>;
+  realm: string | null;
+  nonce: string | null;
+
   /**
    * Create a STUN client
    * @param {Object} options - Client options
@@ -82,7 +199,7 @@ class STUNClient extends EventEmitter {
    * @param {string} [options.transport='udp'] - Transport protocol (udp/tcp)
    * @param {Object} [options.params={}] - Additional query parameters from URL
    */
-  constructor(options) {
+  constructor(options: STUNClientOptions) {
     super();
     this.server = options.server;
     this.port = options.port;
@@ -90,7 +207,7 @@ class STUNClient extends EventEmitter {
     this.credential = options.credential;
     this.transport = options.transport || 'udp';
     this.params = options.params || {};
-    
+
     this.socket = null;
     this.transactions = new Map();
     this.realm = null;
@@ -101,24 +218,25 @@ class STUNClient extends EventEmitter {
    * Connect to the STUN/TURN server
    * @returns {Promise<void>}
    */
-  async connect() {
+  async connect(): Promise<void> {
     if (this.socket) {
       return;
     }
 
-    return new Promise((resolve, reject) => {
-      this.socket = dgram.createSocket('udp4');
-      
-      this.socket.on('message', (msg, rinfo) => {
+    return new Promise<void>((resolve, reject) => {
+      const socket = dgram.createSocket('udp4');
+      this.socket = socket;
+
+      socket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
         this._handleMessage(msg, rinfo);
       });
 
-      this.socket.on('error', (err) => {
+      socket.on('error', (err: Error) => {
         console.error('STUN socket error:', err);
         reject(err);
       });
 
-      this.socket.bind(() => {
+      socket.bind(() => {
         resolve();
       });
     });
@@ -128,30 +246,30 @@ class STUNClient extends EventEmitter {
    * Send a STUN Binding Request to get reflexive address
    * @returns {Promise<Object>} Reflexive address info
    */
-  async getReflexiveAddress() {
+  async getReflexiveAddress(): Promise<TransactionResult> {
     await this.connect();
 
     const transactionId = crypto.randomBytes(12);
     const request = this._createBindingRequest(transactionId);
 
-    return new Promise((resolve, reject) => {
+    return new Promise<TransactionResult>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.transactions.delete(transactionId.toString('hex'));
         reject(new Error('STUN request timeout'));
       }, 5000);
 
       this.transactions.set(transactionId.toString('hex'), {
-        resolve: (result) => {
+        resolve: (result: TransactionResult) => {
           clearTimeout(timeout);
           resolve(result);
         },
-        reject: (error) => {
+        reject: (error: Error) => {
           clearTimeout(timeout);
           reject(error);
-        }
+        },
       });
 
-      this.socket.send(request, this.port, this.server, (err) => {
+      this.socket!.send(request, this.port, this.server, (err) => {
         if (err) {
           clearTimeout(timeout);
           this.transactions.delete(transactionId.toString('hex'));
@@ -166,7 +284,7 @@ class STUNClient extends EventEmitter {
    * @param {number} [lifetime=600] - Allocation lifetime in seconds
    * @returns {Promise<Object>} Relay address info
    */
-  async allocateRelay(lifetime = 600) {
+  async allocateRelay(lifetime: number = 600): Promise<TransactionResult> {
     if (!this.username || !this.credential) {
       throw new Error('TURN requires username and credential');
     }
@@ -181,7 +299,7 @@ class STUNClient extends EventEmitter {
       return await this._sendRequest(request, transactionId, 'allocate');
     } catch (error) {
       // If we get 401 Unauthorized, retry with credentials
-      if (error.message.includes('401') && this.realm && this.nonce) {
+      if (error instanceof Error && error.message.includes('401') && this.realm && this.nonce) {
         // Create new transaction ID for retry
         transactionId = crypto.randomBytes(12);
         request = this._createAllocateRequest(transactionId, lifetime, true);
@@ -196,7 +314,7 @@ class STUNClient extends EventEmitter {
    * @param {number} [lifetime=600] - Allocation lifetime in seconds
    * @returns {Promise<Object>} Updated allocation info
    */
-  async refreshAllocation(lifetime = 600) {
+  async refreshAllocation(lifetime: number = 600): Promise<TransactionResult> {
     if (!this.username || !this.credential) {
       throw new Error('TURN requires username and credential');
     }
@@ -215,12 +333,12 @@ class STUNClient extends EventEmitter {
    * @returns {Promise<Object>}
    * @private
    */
-  async _withAuthRetry(type, build) {
+  async _withAuthRetry(type: string, build: () => RequestBuild): Promise<TransactionResult> {
     const first = build();
     try {
       return await this._sendRequest(first.request, first.transactionId, type);
     } catch (error) {
-      if (error.message.includes('401') && this.realm && this.nonce) {
+      if (error instanceof Error && error.message.includes('401') && this.realm && this.nonce) {
         const retry = build(); // rebuilt with the refreshed realm/nonce
         return this._sendRequest(retry.request, retry.transactionId, type);
       }
@@ -233,7 +351,7 @@ class STUNClient extends EventEmitter {
    * @param {string} peerAddress - Peer IP address
    * @returns {Promise<void>}
    */
-  async createPermission(peerAddress) {
+  async createPermission(peerAddress: string): Promise<void> {
     if (!this.username || !this.credential) {
       throw new Error('TURN requires username and credential');
     }
@@ -251,7 +369,7 @@ class STUNClient extends EventEmitter {
    * @param {Buffer} data - Data to send
    * @returns {Promise<void>}
    */
-  async sendIndication(peerAddress, peerPort, data) {
+  async sendIndication(peerAddress: string, peerPort: number, data: Buffer): Promise<void> {
     if (!this.username || !this.credential) {
       throw new Error('TURN requires username and credential');
     }
@@ -260,8 +378,8 @@ class STUNClient extends EventEmitter {
     const indication = this._createSendIndication(transactionId, peerAddress, peerPort, data);
 
     // Indications are fire-and-forget, no response expected
-    return new Promise((resolve, reject) => {
-      this.socket.send(indication, this.port, this.server, (err) => {
+    return new Promise<void>((resolve, reject) => {
+      this.socket!.send(indication, this.port, this.server, (err) => {
         if (err) reject(err);
         else resolve();
       });
@@ -276,8 +394,8 @@ class STUNClient extends EventEmitter {
    * @returns {Promise<Object>}
    * @private
    */
-  _sendRequest(request, transactionId, requestType) {
-    return new Promise((resolve, reject) => {
+  _sendRequest(request: Buffer, transactionId: Buffer, requestType: string): Promise<TransactionResult> {
+    return new Promise<TransactionResult>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.transactions.delete(transactionId.toString('hex'));
         reject(new Error(`${requestType} request timeout`));
@@ -285,17 +403,17 @@ class STUNClient extends EventEmitter {
 
       this.transactions.set(transactionId.toString('hex'), {
         type: requestType,
-        resolve: (result) => {
+        resolve: (result: TransactionResult) => {
           clearTimeout(timeout);
           resolve(result);
         },
-        reject: (error) => {
+        reject: (error: Error) => {
           clearTimeout(timeout);
           reject(error);
-        }
+        },
       });
 
-      this.socket.send(request, this.port, this.server, (err) => {
+      this.socket!.send(request, this.port, this.server, (err) => {
         if (err) {
           clearTimeout(timeout);
           this.transactions.delete(transactionId.toString('hex'));
@@ -311,21 +429,21 @@ class STUNClient extends EventEmitter {
    * @returns {Buffer} STUN message
    * @private
    */
-  _createBindingRequest(transactionId) {
+  _createBindingRequest(transactionId: Buffer): Buffer {
     const header = Buffer.alloc(20);
-    
+
     // Message Type (2 bytes)
     header.writeUInt16BE(STUN_MESSAGE_TYPES.BINDING_REQUEST, 0);
-    
+
     // Message Length (2 bytes) - 0 for now, no attributes
     header.writeUInt16BE(0, 2);
-    
+
     // Magic Cookie (4 bytes)
     header.writeUInt32BE(MAGIC_COOKIE, 4);
-    
+
     // Transaction ID (12 bytes)
     transactionId.copy(header, 8);
-    
+
     return header;
   }
 
@@ -337,8 +455,8 @@ class STUNClient extends EventEmitter {
    * @returns {Buffer} STUN message
    * @private
    */
-  _createAllocateRequest(transactionId, lifetime, withAuth = false) {
-    const attributes = [];
+  _createAllocateRequest(transactionId: Buffer, lifetime: number, withAuth: boolean = false): Buffer {
+    const attributes: Buffer[] = [];
 
     // REQUESTED-TRANSPORT (UDP = 17)
     const transport = Buffer.alloc(8);
@@ -356,7 +474,7 @@ class STUNClient extends EventEmitter {
 
     if (withAuth && this.realm && this.nonce) {
       // USERNAME
-      const usernameAttr = this._createStringAttribute(STUN_ATTRIBUTES.USERNAME, this.username);
+      const usernameAttr = this._createStringAttribute(STUN_ATTRIBUTES.USERNAME, this.username!);
       attributes.push(usernameAttr);
 
       // REALM
@@ -378,8 +496,8 @@ class STUNClient extends EventEmitter {
    * @returns {Buffer} STUN message
    * @private
    */
-  _createCreatePermissionRequest(transactionId, peerAddress) {
-    const attributes = [];
+  _createCreatePermissionRequest(transactionId: Buffer, peerAddress: string): Buffer {
+    const attributes: Buffer[] = [];
 
     // XOR-PEER-ADDRESS
     const peerAttr = this._createXorPeerAddressAttribute(peerAddress, 0, transactionId);
@@ -387,7 +505,7 @@ class STUNClient extends EventEmitter {
 
     // Auth attributes
     if (this.realm && this.nonce) {
-      attributes.push(this._createStringAttribute(STUN_ATTRIBUTES.USERNAME, this.username));
+      attributes.push(this._createStringAttribute(STUN_ATTRIBUTES.USERNAME, this.username!));
       attributes.push(this._createStringAttribute(STUN_ATTRIBUTES.REALM, this.realm));
       attributes.push(this._createStringAttribute(STUN_ATTRIBUTES.NONCE, this.nonce));
     }
@@ -404,15 +522,15 @@ class STUNClient extends EventEmitter {
    * @returns {Buffer} STUN message
    * @private
    */
-  _createSendIndication(transactionId, peerAddress, peerPort, data) {
-    const attributes = [];
+  _createSendIndication(transactionId: Buffer, peerAddress: string, peerPort: number, data: Buffer): Buffer {
+    const attributes: Buffer[] = [];
 
     // XOR-PEER-ADDRESS
     const peerAttr = this._createXorPeerAddressAttribute(peerAddress, peerPort, transactionId);
     attributes.push(peerAttr);
 
     // DATA
-    const dataAttr = Buffer.alloc(4 + data.length + (4 - (data.length % 4)) % 4);
+    const dataAttr = Buffer.alloc(4 + data.length + ((4 - (data.length % 4)) % 4));
     dataAttr.writeUInt16BE(STUN_ATTRIBUTES.DATA, 0);
     dataAttr.writeUInt16BE(data.length, 2);
     data.copy(dataAttr, 4);
@@ -429,10 +547,10 @@ class STUNClient extends EventEmitter {
    * @returns {Buffer} Attribute buffer
    * @private
    */
-  _createXorPeerAddressAttribute(address, port, transactionId) {
+  _createXorPeerAddressAttribute(address: string, port: number, _transactionId: Buffer): Buffer {
     const family = 0x01; // IPv4
     const buffer = Buffer.alloc(4 + 8); // Type(2) + Length(2) + Reserved(1) + Family(1) + Port(2) + Address(4)
-    
+
     buffer.writeUInt16BE(STUN_ATTRIBUTES.XOR_PEER_ADDRESS, 0);
     buffer.writeUInt16BE(8, 2);
     buffer.writeUInt8(0, 4);
@@ -444,9 +562,9 @@ class STUNClient extends EventEmitter {
 
     // XOR Address
     const parts = address.split('.').map(Number);
-    const addrInt = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+    const addrInt = (parts[0]! << 24) | (parts[1]! << 16) | (parts[2]! << 8) | parts[3]!;
     const xorAddr = addrInt ^ MAGIC_COOKIE;
-    
+
     buffer.writeUInt32BE(xorAddr >>> 0, 8); // Ensure unsigned
 
     return buffer;
@@ -459,8 +577,8 @@ class STUNClient extends EventEmitter {
    * @returns {Buffer} STUN message
    * @private
    */
-  _createRefreshRequest(transactionId, lifetime) {
-    const attributes = [];
+  _createRefreshRequest(transactionId: Buffer, lifetime: number): Buffer {
+    const attributes: Buffer[] = [];
 
     // LIFETIME
     const lifetimeAttr = Buffer.alloc(8);
@@ -470,7 +588,7 @@ class STUNClient extends EventEmitter {
     attributes.push(lifetimeAttr);
 
     // USERNAME
-    const usernameAttr = this._createStringAttribute(STUN_ATTRIBUTES.USERNAME, this.username);
+    const usernameAttr = this._createStringAttribute(STUN_ATTRIBUTES.USERNAME, this.username!);
     attributes.push(usernameAttr);
 
     // REALM
@@ -497,7 +615,12 @@ class STUNClient extends EventEmitter {
    * @returns {Buffer} Complete STUN message
    * @private
    */
-  _createMessage(messageType, transactionId, attributes, withIntegrity = false) {
+  _createMessage(
+    messageType: number,
+    transactionId: Buffer,
+    attributes: Buffer[],
+    withIntegrity: boolean = false
+  ): Buffer {
     let attributesBuffer = Buffer.concat(attributes);
 
     // Add MESSAGE-INTEGRITY if needed
@@ -509,14 +632,14 @@ class STUNClient extends EventEmitter {
       transactionId.copy(tempHeader, 8);
 
       const tempMessage = Buffer.concat([tempHeader, attributesBuffer]);
-      
+
       // For TURN, compute key as MD5(username:realm:password) per RFC 5766
-      let key = this.credential;
+      let key: string | Buffer = this.credential;
       if (this.username && this.realm) {
         const keyString = `${this.username}:${this.realm}:${this.credential}`;
         key = crypto.createHash('md5').update(keyString).digest();
       }
-      
+
       const hmac = crypto.createHmac('sha1', key);
       hmac.update(tempMessage);
       const integrity = hmac.digest();
@@ -546,16 +669,16 @@ class STUNClient extends EventEmitter {
    * @returns {Buffer} Attribute buffer
    * @private
    */
-  _createStringAttribute(type, value) {
+  _createStringAttribute(type: number, value: string): Buffer {
     const valueBuffer = Buffer.from(value, 'utf8');
     const length = valueBuffer.length;
     const padding = (4 - (length % 4)) % 4;
     const buffer = Buffer.alloc(4 + length + padding);
-    
+
     buffer.writeUInt16BE(type, 0);
     buffer.writeUInt16BE(length, 2);
     valueBuffer.copy(buffer, 4);
-    
+
     return buffer;
   }
 
@@ -565,7 +688,7 @@ class STUNClient extends EventEmitter {
    * @param {Object} rinfo - Remote info
    * @private
    */
-  _handleMessage(msg, rinfo) {
+  _handleMessage(msg: Buffer, _rinfo: dgram.RemoteInfo): void {
     if (msg.length < 20) {
       return; // Invalid STUN message
     }
@@ -585,11 +708,12 @@ class STUNClient extends EventEmitter {
     if (messageType === STUN_MESSAGE_TYPES.DATA_INDICATION) {
       const attrs = this._parseAttributes(msg.slice(20, 20 + messageLength), transactionId);
       if (attrs.xorPeerAddress && attrs.data) {
-        this.emit('data', attrs.data, {
+        const info: DataEventInfo = {
           address: attrs.xorPeerAddress.address,
           port: attrs.xorPeerAddress.port,
           family: attrs.xorPeerAddress.family || 'IPv4',
-        });
+        };
+        this.emit('data', attrs.data, info);
       }
       return;
     }
@@ -609,13 +733,13 @@ class STUNClient extends EventEmitter {
         transaction.resolve({
           address: attributes.xorMappedAddress.address,
           port: attributes.xorMappedAddress.port,
-          family: attributes.xorMappedAddress.family
+          family: attributes.xorMappedAddress.family,
         });
       } else if (attributes.mappedAddress) {
         transaction.resolve({
           address: attributes.mappedAddress.address,
           port: attributes.mappedAddress.port,
-          family: attributes.mappedAddress.family
+          family: attributes.mappedAddress.family,
         });
       } else {
         transaction.reject(new Error('No mapped address in STUN response'));
@@ -629,7 +753,7 @@ class STUNClient extends EventEmitter {
           relayedAddress: attributes.xorRelayedAddress.address,
           relayedPort: attributes.xorRelayedAddress.port,
           lifetime: attributes.lifetime || 600,
-          type: 'relay'
+          type: 'relay',
         });
       } else {
         transaction.reject(new Error('No relayed address in ALLOCATE response'));
@@ -639,13 +763,15 @@ class STUNClient extends EventEmitter {
     // Handle TURN Refresh responses
     else if (messageType === STUN_MESSAGE_TYPES.REFRESH_RESPONSE) {
       transaction.resolve({
-        lifetime: attributes.lifetime || 600
+        lifetime: attributes.lifetime || 600,
       });
       this.transactions.delete(transactionKey);
     }
     // Handle TURN CreatePermission / ChannelBind success responses
-    else if (messageType === STUN_MESSAGE_TYPES.CREATE_PERMISSION_RESPONSE ||
-             messageType === STUN_MESSAGE_TYPES.CHANNEL_BIND_RESPONSE) {
+    else if (
+      messageType === STUN_MESSAGE_TYPES.CREATE_PERMISSION_RESPONSE ||
+      messageType === STUN_MESSAGE_TYPES.CHANNEL_BIND_RESPONSE
+    ) {
       transaction.resolve({ ok: true });
       this.transactions.delete(transactionKey);
     }
@@ -675,8 +801,8 @@ class STUNClient extends EventEmitter {
    * @returns {Object} Parsed attributes
    * @private
    */
-  _parseAttributes(data, transactionId) {
-    const attributes = {};
+  _parseAttributes(data: Buffer, transactionId: Buffer): ParsedAttributes {
+    const attributes: ParsedAttributes = {};
     let offset = 0;
 
     while (offset < data.length) {
@@ -738,26 +864,22 @@ class STUNClient extends EventEmitter {
    * @returns {Object} Address info
    * @private
    */
-  _parseXorAddress(data, transactionId) {
+  _parseXorAddress(data: Buffer, _transactionId: Buffer): AddressInfo | null {
     const family = data.readUInt8(1);
     const xorPort = data.readUInt16BE(2);
-    
+
     // XOR port with magic cookie high 16 bits
     const port = xorPort ^ (MAGIC_COOKIE >> 16);
 
-    if (family === 0x01) { // IPv4
+    if (family === 0x01) {
+      // IPv4
       const xorAddress = data.readUInt32BE(4);
       const address = xorAddress ^ MAGIC_COOKIE;
-      
+
       return {
         family: 'IPv4',
         port,
-        address: [
-          (address >> 24) & 0xFF,
-          (address >> 16) & 0xFF,
-          (address >> 8) & 0xFF,
-          address & 0xFF
-        ].join('.')
+        address: [(address >> 24) & 0xff, (address >> 16) & 0xff, (address >> 8) & 0xff, address & 0xff].join('.'),
       };
     }
 
@@ -770,16 +892,17 @@ class STUNClient extends EventEmitter {
    * @returns {Object} Address info
    * @private
    */
-  _parseAddress(data) {
+  _parseAddress(data: Buffer): AddressInfo | null {
     const family = data.readUInt8(1);
     const port = data.readUInt16BE(2);
 
-    if (family === 0x01) { // IPv4
+    if (family === 0x01) {
+      // IPv4
       const address = data.slice(4, 8);
       return {
         family: 'IPv4',
         port,
-        address: Array.from(address).join('.')
+        address: Array.from(address).join('.'),
       };
     }
 
@@ -792,19 +915,19 @@ class STUNClient extends EventEmitter {
    * @returns {string} Error message
    * @private
    */
-  _parseErrorCode(data) {
+  _parseErrorCode(data: Buffer): string {
     const errorClass = data.readUInt8(2) & 0x07;
     const errorNumber = data.readUInt8(3);
     const errorCode = errorClass * 100 + errorNumber;
     const reason = data.slice(4).toString('utf8');
-    
+
     return `${errorCode} ${reason}`;
   }
 
   /**
    * Close the client
    */
-  close() {
+  close(): void {
     if (this.socket) {
       this.socket.close();
       this.socket = null;
@@ -813,4 +936,5 @@ class STUNClient extends EventEmitter {
   }
 }
 
-module.exports = STUNClient;
+export default STUNClient;
+export { STUNClient };

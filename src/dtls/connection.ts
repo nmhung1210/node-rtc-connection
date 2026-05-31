@@ -1,5 +1,5 @@
 /**
- * @file connection.js
+ * @file connection.ts
  * @description DTLS 1.2 connection state machine (client and server roles).
  * @module dtls/connection
  *
@@ -19,11 +19,12 @@
 
 'use strict';
 
-const crypto = require('crypto');
-const EventEmitter = require('events');
-const P = require('./protocol');
-const { prf } = require('./prf');
-const cipher = require('./cipher');
+import * as crypto from 'crypto';
+import { EventEmitter } from 'events';
+import * as P from './protocol';
+import { prf } from './prf';
+import * as cipher from './cipher';
+import * as x509 from '../crypto/x509';
 
 const HANDSHAKE_TIMEOUT_MS = 1000; // initial retransmit timer (doubles per RFC 6347)
 const MAX_RETRANSMITS = 10;
@@ -39,21 +40,104 @@ const STATE = Object.freeze({
   FAILED: 'failed',
 });
 
+/** A certificate fingerprint as advertised in SDP a=fingerprint. */
+interface Fingerprint {
+  algorithm: string;
+  value: string;
+}
+
+/** Callback used to verify the peer's certificate fingerprint. */
+type VerifyFingerprint = (
+  fp: Fingerprint,
+  remoteCertDer: Buffer
+) => boolean;
+
+/** Constructor options for {@link DtlsConnection}. */
+interface DtlsConnectionOptions {
+  /** 'client' | 'server' */
+  role: string;
+  /** local DER certificate */
+  certDer: Buffer;
+  /** local EC private key */
+  privateKey: crypto.KeyObject;
+  /** called with the peer cert fingerprint; return false to reject. */
+  verifyFingerprint?: VerifyFingerprint;
+  /** send a datagram to the peer */
+  output: (datagram: Buffer) => void;
+}
+
+/** A handshake message queued for sending: a type plus its body. */
+interface HandshakeMessage {
+  type: number;
+  body: Buffer;
+}
+
+/** A record-layer datagram queued in the current flight. */
+interface FlightDatagram {
+  type: number;
+  payload: Buffer;
+}
+
+/** State for reassembling a fragmented inbound handshake message. */
+interface ReassemblyEntry {
+  type: number;
+  length: number;
+  data: Buffer;
+  received: number;
+  ranges: Array<[number, number]>;
+}
+
 /**
  * @class DtlsConnection
  * @extends EventEmitter
  */
 class DtlsConnection extends EventEmitter {
+  role: string;
+  state: string;
+
+  private _certDer: Buffer;
+  private _privateKey: crypto.KeyObject;
+  private _verifyFingerprint: VerifyFingerprint | null;
+  private _output: (datagram: Buffer) => void;
+
+  // Record layer state.
+  private _sendEpoch: number;
+  private _sendSeq: number;
+  private _handshakeMessageSeq: number;
+
+  // Cipher state (set after key derivation).
+  private _writeCipher: cipher.GcmCipher | null;
+  private _readCipher: cipher.GcmCipher | null;
+  private _sendEncrypted: boolean;
+
+  // Handshake crypto material.
+  private _clientRandom: Buffer | null;
+  private _serverRandom: Buffer | null;
+  private _cookie: Buffer;
+  private _ecdh: crypto.ECDH | null;
+  private _masterSecret: Buffer | null;
+  private _remoteCertDer: Buffer | null;
+  private _remoteEcdhePub: Buffer | null;
+  private _useExtendedMasterSecret: boolean;
+
+  private _transcript: Buffer[];
+
+  private _reassembly: Map<number, ReassemblyEntry>;
+  private _nextExpectedHsSeq: number;
+
+  private _lastFlight: FlightDatagram[];
+  private _retransmitTimer: NodeJS.Timeout | null;
+  private _retransmitCount: number;
+
+  private _handshakeDone: boolean;
+
+  private _cookieSecret?: Buffer;
+  private _renegRequested?: boolean;
+
   /**
-   * @param {Object} opts
-   * @param {'client'|'server'} opts.role
-   * @param {Buffer} opts.certDer - local DER certificate
-   * @param {crypto.KeyObject} opts.privateKey - local EC private key
-   * @param {(fp:{algorithm:string,value:string}, remoteCertDer:Buffer)=>boolean} [opts.verifyFingerprint]
-   *        - called with the peer cert fingerprint; return false to reject.
-   * @param {(datagram:Buffer)=>void} opts.output - send a datagram to the peer
+   * @param opts connection options
    */
-  constructor(opts) {
+  constructor(opts: DtlsConnectionOptions) {
     super();
     this.role = opts.role;
     this._certDer = opts.certDer;
@@ -101,7 +185,7 @@ class DtlsConnection extends EventEmitter {
   }
 
   /** Begin the handshake (client sends the first flight). */
-  start() {
+  start(): void {
     if (this.state !== STATE.NEW) return;
     this.state = STATE.HANDSHAKING;
     if (this.role === ROLE.CLIENT) {
@@ -112,7 +196,7 @@ class DtlsConnection extends EventEmitter {
   }
 
   /** 32-byte Random (4-byte gmt_unix_time || 28 random). */
-  _makeRandom() {
+  _makeRandom(): Buffer {
     const r = crypto.randomBytes(32);
     r.writeUInt32BE(Math.floor(Date.now() / 1000), 0);
     return r;
@@ -123,10 +207,10 @@ class DtlsConnection extends EventEmitter {
   /**
    * Emit a set of handshake messages as one flight: fragment, frame as records,
    * append to transcript, and arm retransmission.
-   * @param {Array<{type:number, body:Buffer}>} messages
+   * @param messages
    */
-  _sendFlight(messages) {
-    const datagrams = [];
+  _sendFlight(messages: HandshakeMessage[]): void {
+    const datagrams: FlightDatagram[] = [];
     for (const msg of messages) {
       const seq = this._handshakeMessageSeq++;
       // Full (unfragmented) message goes into the transcript hash.
@@ -157,14 +241,14 @@ class DtlsConnection extends EventEmitter {
   }
 
   /** Encode each queued message as a record and send. */
-  _flushFlight() {
+  _flushFlight(): void {
     for (const d of this._lastFlight) {
       this._sendRecord(d.type, d.payload);
     }
   }
 
   /** Send a ChangeCipherSpec record (epoch boundary on our side). */
-  _sendChangeCipherSpec() {
+  _sendChangeCipherSpec(): void {
     this._sendRecord(P.CONTENT_TYPE.CHANGE_CIPHER_SPEC, Buffer.from([1]));
     // After CCS, subsequent records use the new epoch and are encrypted.
     this._sendEpoch = 1;
@@ -174,10 +258,10 @@ class DtlsConnection extends EventEmitter {
 
   /**
    * Frame a payload as a DTLS record, encrypting if we're past CCS.
-   * @param {number} type
-   * @param {Buffer} payload
+   * @param type
+   * @param payload
    */
-  _sendRecord(type, payload) {
+  _sendRecord(type: number, payload: Buffer): void {
     let fragment = payload;
     const seq = this._sendSeq++;
     if (this._sendEncrypted && this._writeCipher) {
@@ -187,7 +271,7 @@ class DtlsConnection extends EventEmitter {
     this._output(record);
   }
 
-  _armRetransmit() {
+  _armRetransmit(): void {
     this._clearRetransmit();
     this._retransmitTimer = setTimeout(() => {
       if (this._handshakeDone || this.state !== STATE.HANDSHAKING) return;
@@ -204,7 +288,7 @@ class DtlsConnection extends EventEmitter {
     if (this._retransmitTimer.unref) this._retransmitTimer.unref();
   }
 
-  _clearRetransmit() {
+  _clearRetransmit(): void {
     if (this._retransmitTimer) {
       clearTimeout(this._retransmitTimer);
       this._retransmitTimer = null;
@@ -215,11 +299,11 @@ class DtlsConnection extends EventEmitter {
 
   /**
    * Feed an inbound datagram (one UDP packet, possibly several records).
-   * @param {Buffer} packet
+   * @param packet
    */
-  handlePacket(packet) {
+  handlePacket(packet: Buffer): void {
     if (this.state === STATE.CLOSED || this.state === STATE.FAILED) return;
-    let records;
+    let records: P.Record[];
     try {
       records = P.parseRecords(packet);
     } catch (err) {
@@ -229,13 +313,13 @@ class DtlsConnection extends EventEmitter {
       try {
         this._handleRecord(rec);
       } catch (err) {
-        this._fail(err);
+        this._fail(err instanceof Error ? err : new Error(String(err)));
         return;
       }
     }
   }
 
-  _handleRecord(rec) {
+  _handleRecord(rec: P.Record): void {
     let fragment = rec.fragment;
 
     // Decrypt records from the peer's encrypted epoch.
@@ -266,10 +350,10 @@ class DtlsConnection extends EventEmitter {
     }
   }
 
-  _handleAlert(fragment) {
+  _handleAlert(fragment: Buffer): void {
     if (fragment.length < 2) return;
-    const level = fragment[0];
-    const desc = fragment[1];
+    const level = fragment[0]!;
+    const desc = fragment[1]!;
     if (desc === P.ALERT_DESC.CLOSE_NOTIFY) {
       this.close();
     } else if (level === P.ALERT_LEVEL.FATAL) {
@@ -280,9 +364,9 @@ class DtlsConnection extends EventEmitter {
   /**
    * Reassemble a (possibly fragmented) handshake message, then dispatch
    * complete messages in order.
-   * @param {Buffer} buf - one handshake fragment (12-byte header + chunk)
+   * @param buf - one handshake fragment (12-byte header + chunk)
    */
-  _handleHandshakeFragment(buf) {
+  _handleHandshakeFragment(buf: Buffer): void {
     const h = P.parseHandshake(buf);
 
     // Initialize / fetch reassembly buffer for this message_seq.
@@ -309,12 +393,12 @@ class DtlsConnection extends EventEmitter {
    * Add a received handshake message to the transcript (reconstructed as a
    * single unfragmented message, per RFC 6347 §4.2.6).
    */
-  _appendInboundTranscript(type, body) {
+  _appendInboundTranscript(type: number, body: Buffer): void {
     const seq = this._nextExpectedHsSeq - 1; // message_seq just consumed
     this._transcript.push(P.encodeHandshake(type, seq, body));
   }
 
-  _dispatchHandshake(type, body) {
+  _dispatchHandshake(type: number, body: Buffer): void {
     if (this.role === ROLE.CLIENT) {
       this._clientHandle(type, body);
     } else {
@@ -322,20 +406,20 @@ class DtlsConnection extends EventEmitter {
     }
   }
 
-  _transcriptHash() {
+  _transcriptHash(): Buffer {
     const h = crypto.createHash('sha256');
     for (const m of this._transcript) h.update(m);
     return h.digest();
   }
 
   /** Raw concatenation of all transcript handshake messages (for signing). */
-  _transcriptBytes() {
+  _transcriptBytes(): Buffer {
     return Buffer.concat(this._transcript);
   }
 
   // ---- CLIENT role --------------------------------------------------------
 
-  _sendClientHello() {
+  _sendClientHello(): void {
     const body = this._buildClientHello();
     if (this._cookie.length === 0) {
       // First ClientHello is excluded from the transcript: send as a raw
@@ -359,10 +443,10 @@ class DtlsConnection extends EventEmitter {
     }
   }
 
-  _buildClientHello() {
-    const parts = [];
+  _buildClientHello(): Buffer {
+    const parts: Buffer[] = [];
     parts.push(Buffer.from([0xfe, 0xfd])); // client_version DTLS 1.2
-    parts.push(this._clientRandom);
+    parts.push(this._clientRandom!);
     parts.push(P.vec8(Buffer.alloc(0))); // session_id (empty)
     parts.push(P.vec8(this._cookie)); // cookie
     // cipher_suites
@@ -376,8 +460,8 @@ class DtlsConnection extends EventEmitter {
     return Buffer.concat(parts);
   }
 
-  _buildClientExtensions() {
-    const exts = [];
+  _buildClientExtensions(): Buffer {
+    const exts: Buffer[] = [];
 
     // supported_groups: secp256r1
     const groups = Buffer.alloc(2);
@@ -397,14 +481,14 @@ class DtlsConnection extends EventEmitter {
     return Buffer.concat(exts);
   }
 
-  _ext(type, body) {
+  _ext(type: number, body: Buffer): Buffer {
     const head = Buffer.alloc(4);
     head.writeUInt16BE(type, 0);
     head.writeUInt16BE(body.length, 2);
     return Buffer.concat([head, body]);
   }
 
-  _clientHandle(type, body) {
+  _clientHandle(type: number, body: Buffer): void {
     switch (type) {
       case P.HANDSHAKE_TYPE.HELLO_VERIFY_REQUEST: {
         // Extract cookie and resend ClientHello. Not added to transcript.
@@ -448,7 +532,7 @@ class DtlsConnection extends EventEmitter {
     }
   }
 
-  _parseServerHello(body) {
+  _parseServerHello(body: Buffer): void {
     // server_version(2) || random(32) || session_id<vec8> || cipher_suite(2)
     // || compression(1) || extensions<vec16>
     let o = 2;
@@ -479,14 +563,14 @@ class DtlsConnection extends EventEmitter {
     }
   }
 
-  _sendClientSecondFlight() {
+  _sendClientSecondFlight(): void {
     // Generate our ECDHE key.
     this._ecdh = crypto.createECDH('prime256v1');
     this._ecdh.generateKeys();
     const clientPub = this._ecdh.getPublicKey(); // uncompressed point (65 bytes)
 
     // Compute pre-master secret = ECDH(serverPub).
-    const pms = this._ecdh.computeSecret(this._remoteEcdhePub);
+    const pms = this._ecdh.computeSecret(this._remoteEcdhePub!);
 
     // client Certificate
     const certMsg = this._buildCertificateMessage();
@@ -510,7 +594,7 @@ class DtlsConnection extends EventEmitter {
       const sessionHash = h.digest();
       this._masterSecret = cipher.deriveExtendedMasterSecret(pms, sessionHash);
     } else {
-      this._masterSecret = cipher.deriveMasterSecret(pms, this._clientRandom, this._serverRandom);
+      this._masterSecret = cipher.deriveMasterSecret(pms, this._clientRandom!, this._serverRandom!);
     }
     this._deriveCipherKeys();
 
@@ -539,7 +623,7 @@ class DtlsConnection extends EventEmitter {
 
   // ---- SERVER role --------------------------------------------------------
 
-  _serverHandle(type, body) {
+  _serverHandle(type: number, body: Buffer): void {
     switch (type) {
       case P.HANDSHAKE_TYPE.CLIENT_HELLO:
         this._handleClientHello(body);
@@ -552,11 +636,11 @@ class DtlsConnection extends EventEmitter {
         this._appendInboundTranscript(type, body);
         const pubLen = body.readUInt8(0);
         this._remoteEcdhePub = body.slice(1, 1 + pubLen);
-        const pms = this._ecdh.computeSecret(this._remoteEcdhePub);
+        const pms = this._ecdh!.computeSecret(this._remoteEcdhePub);
         if (this._useExtendedMasterSecret) {
           this._masterSecret = cipher.deriveExtendedMasterSecret(pms, this._transcriptHash());
         } else {
-          this._masterSecret = cipher.deriveMasterSecret(pms, this._clientRandom, this._serverRandom);
+          this._masterSecret = cipher.deriveMasterSecret(pms, this._clientRandom!, this._serverRandom!);
         }
         this._deriveCipherKeys();
         break;
@@ -578,7 +662,7 @@ class DtlsConnection extends EventEmitter {
     }
   }
 
-  _handleClientHello(body) {
+  _handleClientHello(body: Buffer): void {
     // Parse enough to extract random, cookie, and extensions.
     let o = 2; // skip client_version
     const random = body.slice(o, o + 32);
@@ -646,12 +730,12 @@ class DtlsConnection extends EventEmitter {
     this._sendServerFlight();
   }
 
-  _makeCookie(clientRandom) {
+  _makeCookie(clientRandom: Buffer): Buffer {
     if (!this._cookieSecret) this._cookieSecret = crypto.randomBytes(32);
     return crypto.createHmac('sha256', this._cookieSecret).update(clientRandom).digest().slice(0, 20);
   }
 
-  _sendHelloVerifyRequest(cookie) {
+  _sendHelloVerifyRequest(cookie: Buffer): void {
     // body: server_version(2) || cookie<vec8>
     const body = Buffer.concat([Buffer.from([0xfe, 0xff]), P.vec8(cookie)]);
     // HVR uses message_seq 0 and is not retransmitted via flight machinery.
@@ -661,7 +745,7 @@ class DtlsConnection extends EventEmitter {
     this._handshakeMessageSeq = 1;
   }
 
-  _sendServerFlight() {
+  _sendServerFlight(): void {
     this._serverRandom = this._makeRandom();
     this._ecdh = crypto.createECDH('prime256v1');
     this._ecdh.generateKeys();
@@ -679,7 +763,7 @@ class DtlsConnection extends EventEmitter {
       (() => { const b = Buffer.alloc(2); b.writeUInt16BE(P.NAMED_GROUP.secp256r1, 0); return b; })(),
       P.vec8(serverPub),
     ]);
-    const signed = Buffer.concat([this._clientRandom, this._serverRandom, ecdhParams]);
+    const signed = Buffer.concat([this._clientRandom!, this._serverRandom, ecdhParams]);
     const sig = crypto.sign('sha256', signed, { key: this._privateKey, dsaEncoding: 'der' });
     const skeBody = Buffer.concat([
       ecdhParams,
@@ -705,17 +789,17 @@ class DtlsConnection extends EventEmitter {
     ]);
   }
 
-  _buildServerHello() {
-    const parts = [];
+  _buildServerHello(): Buffer {
+    const parts: Buffer[] = [];
     parts.push(Buffer.from([0xfe, 0xfd])); // server_version DTLS 1.2
-    parts.push(this._serverRandom);
+    parts.push(this._serverRandom!);
     parts.push(P.vec8(Buffer.alloc(0))); // session_id empty
     const cs = Buffer.alloc(2);
     cs.writeUInt16BE(P.CIPHER_SUITE, 0);
     parts.push(cs); // cipher_suite (2 bytes, not a vector)
     parts.push(Buffer.from([0x00])); // compression null
     // extensions
-    const exts = [];
+    const exts: Buffer[] = [];
     if (this._useExtendedMasterSecret) {
       exts.push(this._ext(P.EXTENSION.EXTENDED_MASTER_SECRET, Buffer.alloc(0)));
     }
@@ -729,14 +813,14 @@ class DtlsConnection extends EventEmitter {
     return Buffer.concat(parts);
   }
 
-  _verifyClientCertificateVerify(body) {
+  _verifyClientCertificateVerify(body: Buffer): void {
     // body: SignatureAndHashAlgorithm(2) || signature<vec16>
     const sigLen = body.readUInt16BE(2);
     const sig = body.slice(4, 4 + sigLen);
     // Verify over the raw transcript through ClientKeyExchange (crypto.verify
     // hashes internally, mirroring the signer).
     const data = this._transcriptBytes();
-    const pub = this._publicKeyFromCert(this._remoteCertDer);
+    const pub = this._publicKeyFromCert(this._remoteCertDer!);
     const ok = crypto.verify('sha256', data, { key: pub, dsaEncoding: 'der' }, sig);
     if (!ok) throw new Error('Client CertificateVerify signature invalid');
   }
@@ -744,14 +828,14 @@ class DtlsConnection extends EventEmitter {
   // ---- Shared handshake helpers ------------------------------------------
 
   /** Build a Certificate message carrying our single DER cert. */
-  _buildCertificateMessage() {
+  _buildCertificateMessage(): Buffer {
     // certificate_list: each entry is cert<vec24>; whole list is vec24.
     const entry = P.vec24(this._certDer);
     return P.vec24(entry);
   }
 
   /** Parse a Certificate message and return the first cert's DER. */
-  _parseCertificate(body) {
+  _parseCertificate(body: Buffer): Buffer | null {
     // body: certificate_list<vec24> of cert<vec24>
     const listLen = P.readUint24(body, 0);
     let o = 3;
@@ -766,7 +850,6 @@ class DtlsConnection extends EventEmitter {
 
     // Fingerprint verification against the SDP-advertised value.
     if (this._verifyFingerprint) {
-      const x509 = require('../crypto/x509');
       const fp = { algorithm: 'sha-256', value: x509.fingerprint(certDer, 'sha-256') };
       if (!this._verifyFingerprint(fp, certDer)) {
         throw new Error('Remote certificate fingerprint mismatch');
@@ -775,7 +858,7 @@ class DtlsConnection extends EventEmitter {
     return certDer;
   }
 
-  _parseServerKeyExchange(body) {
+  _parseServerKeyExchange(body: Buffer): void {
     // ServerECDHParams: curve_type(1) || named_curve(2) || public<vec8>
     // then SignatureAndHashAlgorithm(2) || signature<vec16>
     let o = 0;
@@ -794,22 +877,22 @@ class DtlsConnection extends EventEmitter {
     o += 2;
     const sigLen = body.readUInt16BE(o); o += 2;
     const sig = body.slice(o, o + sigLen);
-    const signed = Buffer.concat([this._clientRandom, this._serverRandom, ecdhParams]);
-    const pub = this._publicKeyFromCert(this._remoteCertDer);
+    const signed = Buffer.concat([this._clientRandom!, this._serverRandom!, ecdhParams]);
+    const pub = this._publicKeyFromCert(this._remoteCertDer!);
     const ok = crypto.verify('sha256', signed, { key: pub, dsaEncoding: 'der' }, sig);
     if (!ok) throw new Error('ServerKeyExchange signature invalid');
   }
 
-  _publicKeyFromCert(certDer) {
+  _publicKeyFromCert(certDer: Buffer): crypto.KeyObject {
     const cert = new crypto.X509Certificate(certDer);
     return cert.publicKey;
   }
 
-  _deriveCipherKeys() {
+  _deriveCipherKeys(): void {
     const { clientKey, serverKey, clientIV, serverIV } = cipher.deriveKeys(
-      this._masterSecret,
-      this._clientRandom,
-      this._serverRandom
+      this._masterSecret!,
+      this._clientRandom!,
+      this._serverRandom!
     );
     if (this.role === ROLE.CLIENT) {
       this._writeCipher = new cipher.GcmCipher(clientKey, clientIV);
@@ -820,8 +903,8 @@ class DtlsConnection extends EventEmitter {
     }
   }
 
-  _sendFinished(label) {
-    const verifyData = prf(this._masterSecret, label, this._transcriptHash(), 12);
+  _sendFinished(label: string): void {
+    const verifyData = prf(this._masterSecret!, label, this._transcriptHash(), 12);
     // Finished is itself a handshake message and goes into the transcript.
     const seq = this._handshakeMessageSeq++;
     const full = P.encodeHandshake(P.HANDSHAKE_TYPE.FINISHED, seq, verifyData);
@@ -829,14 +912,14 @@ class DtlsConnection extends EventEmitter {
     this._sendRecord(P.CONTENT_TYPE.HANDSHAKE, full);
   }
 
-  _verifyPeerFinished(body, label) {
-    const expected = prf(this._masterSecret, label, this._transcriptHash(), 12);
+  _verifyPeerFinished(body: Buffer, label: string): void {
+    const expected = prf(this._masterSecret!, label, this._transcriptHash(), 12);
     if (!crypto.timingSafeEqual(body, expected)) {
       throw new Error('Peer Finished verify_data mismatch');
     }
   }
 
-  _onHandshakeComplete() {
+  _onHandshakeComplete(): void {
     if (this._handshakeDone) return;
     this._handshakeDone = true;
     this._clearRetransmit();
@@ -848,9 +931,9 @@ class DtlsConnection extends EventEmitter {
 
   /**
    * Send application data over the established connection.
-   * @param {Buffer} data
+   * @param data
    */
-  send(data) {
+  send(data: Buffer): void {
     if (this.state !== STATE.CONNECTED) {
       throw new Error('DTLS connection not established');
     }
@@ -858,7 +941,7 @@ class DtlsConnection extends EventEmitter {
   }
 
   /** Send a close_notify and tear down. */
-  close() {
+  close(): void {
     if (this.state === STATE.CLOSED || this.state === STATE.FAILED) return;
     try {
       if (this._sendEncrypted) {
@@ -875,7 +958,7 @@ class DtlsConnection extends EventEmitter {
     this.emit('close');
   }
 
-  _fail(err) {
+  _fail(err: Error): void {
     if (this.state === STATE.FAILED || this.state === STATE.CLOSED) return;
     this._clearRetransmit();
     this.state = STATE.FAILED;
@@ -883,9 +966,9 @@ class DtlsConnection extends EventEmitter {
   }
 
   /** The peer's certificate DER, available after the handshake. */
-  getRemoteCertificate() {
+  getRemoteCertificate(): Buffer | null {
     return this._remoteCertDer;
   }
 }
 
-module.exports = { DtlsConnection, ROLE, STATE };
+export { DtlsConnection, ROLE, STATE };

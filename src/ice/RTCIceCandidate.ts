@@ -1,12 +1,12 @@
 /**
- * @fileoverview RTCIceCandidate - ICE candidate representation.
+ * @file RTCIceCandidate - ICE candidate representation.
  *
  * Implements the W3C RTCIceCandidate interface
  * (https://www.w3.org/TR/webrtc/#rtcicecandidate-interface).
  *
  * Represents an ICE (Interactive Connectivity Establishment) candidate that
  * describes a potential way to establish a connection with a peer.
- * 
+ *
  * @license MIT
  * @author nmhung1210
  */
@@ -14,15 +14,77 @@
 'use strict';
 
 /**
+ * Initialization dictionary for RTCIceCandidate.
+ */
+interface RTCIceCandidateInit {
+  candidate?: string;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+  usernameFragment?: string | null;
+}
+
+/**
+ * Parsed attributes extracted from an ICE candidate string.
+ */
+interface ParsedCandidateAttributes {
+  foundation: string | null;
+  component: string | null;
+  protocol: string | null;
+  priority: number | null;
+  address: string | null;
+  port: number | null;
+  type: string | null;
+  tcpType: string | null;
+  relatedAddress: string | null;
+  relatedPort: number | null;
+}
+
+/**
+ * JSON representation of an RTCIceCandidate.
+ */
+interface RTCIceCandidateJSON {
+  candidate: string;
+  sdpMid: string | null;
+  sdpMLineIndex: number | null;
+  usernameFragment?: string;
+}
+
+/**
  * RTCIceCandidate represents a potential method for establishing connectivity.
- * 
+ *
  * ICE candidates are described using SDP (Session Description Protocol) syntax.
  * Each candidate describes a single address/port combination and transport protocol.
  */
 class RTCIceCandidate {
   /**
+   * SDP candidate string.
+   * @private {string}
+   */
+  private readonly _candidate: string;
+
+  /**
+   * Media stream identification.
+   * @private {string|null}
+   */
+  private readonly _sdpMid: string | null;
+
+  /**
+   * Media line index (zero-based).
+   * @private {number|null}
+   */
+  private readonly _sdpMLineIndex: number | null;
+
+  /**
+   * ICE username fragment.
+   * @private {string|null}
+   */
+  private readonly _usernameFragment: string | null;
+
+  private readonly _parsedAttributes: ParsedCandidateAttributes;
+
+  /**
    * Creates a new RTCIceCandidate.
-   * 
+   *
    * @param {RTCIceCandidateInit} [candidateInit={}] - Initialization dictionary
    * @param {string} [candidateInit.candidate=''] - SDP candidate string
    * @param {string|null} [candidateInit.sdpMid] - Media stream ID
@@ -30,35 +92,19 @@ class RTCIceCandidate {
    * @param {string} [candidateInit.usernameFragment] - ICE username fragment
    * @throws {TypeError} If both sdpMid and sdpMLineIndex are null
    */
-  constructor(candidateInit = {}) {
+  constructor(candidateInit: RTCIceCandidateInit = {}) {
     // Validate that at least one of sdpMid or sdpMLineIndex is present
     if (candidateInit.sdpMid === null && candidateInit.sdpMLineIndex === null) {
       throw new TypeError('sdpMid and sdpMLineIndex are both null');
     }
 
-    /**
-     * SDP candidate string.
-     * @private {string}
-     */
     this._candidate = candidateInit.candidate || '';
 
-    /**
-     * Media stream identification.
-     * @private {string|null}
-     */
     this._sdpMid = candidateInit.sdpMid !== undefined ? candidateInit.sdpMid : null;
 
-    /**
-     * Media line index (zero-based).
-     * @private {number|null}
-     */
-    this._sdpMLineIndex = candidateInit.sdpMLineIndex !== undefined ? 
+    this._sdpMLineIndex = candidateInit.sdpMLineIndex !== undefined ?
       candidateInit.sdpMLineIndex : null;
 
-    /**
-     * ICE username fragment.
-     * @private {string|null}
-     */
     this._usernameFragment = candidateInit.usernameFragment || null;
 
     // Parse candidate string for detailed attributes
@@ -68,13 +114,13 @@ class RTCIceCandidate {
   /**
    * Parses an ICE candidate string to extract attributes.
    * Format: "candidate:foundation component protocol priority address port typ type [raddr reladdr] [rport relport]"
-   * 
+   *
    * @private
    * @param {string} candidateStr - Candidate string to parse
    * @returns {Object} Parsed attributes
    */
-  _parseCandidate(candidateStr) {
-    const attrs = {
+  private _parseCandidate(candidateStr: string): ParsedCandidateAttributes {
+    const attrs: ParsedCandidateAttributes = {
       foundation: null,
       component: null,
       protocol: null,
@@ -84,7 +130,7 @@ class RTCIceCandidate {
       type: null,
       tcpType: null,
       relatedAddress: null,
-      relatedPort: null
+      relatedPort: null,
     };
 
     if (!candidateStr || !candidateStr.startsWith('candidate:')) {
@@ -93,35 +139,35 @@ class RTCIceCandidate {
 
     // Remove "candidate:" prefix
     const parts = candidateStr.substring(10).trim().split(/\s+/);
-    
+
     if (parts.length < 8) {
       return attrs;
     }
 
     // Parse fixed fields
-    attrs.foundation = parts[0];
-    attrs.component = parts[1];
-    attrs.protocol = parts[2].toLowerCase();
-    attrs.priority = parseInt(parts[3], 10);
-    attrs.address = parts[4];
-    attrs.port = parseInt(parts[5], 10);
-    
+    attrs.foundation = parts[0]!;
+    attrs.component = parts[1]!;
+    attrs.protocol = parts[2]!.toLowerCase();
+    attrs.priority = parseInt(parts[3]!, 10);
+    attrs.address = parts[4]!;
+    attrs.port = parseInt(parts[5]!, 10);
+
     // parts[6] should be "typ"
     if (parts[6] === 'typ') {
-      attrs.type = parts[7];
+      attrs.type = parts[7]!;
     }
 
     // Parse optional attributes
     for (let i = 8; i < parts.length; i += 2) {
       const key = parts[i];
       const value = parts[i + 1];
-      
+
       if (key === 'raddr') {
-        attrs.relatedAddress = value;
+        attrs.relatedAddress = value!;
       } else if (key === 'rport') {
-        attrs.relatedPort = parseInt(value, 10);
+        attrs.relatedPort = parseInt(value!, 10);
       } else if (key === 'tcptype') {
-        attrs.tcpType = value;
+        attrs.tcpType = value!;
       }
     }
 
@@ -132,7 +178,7 @@ class RTCIceCandidate {
    * SDP candidate attribute containing the candidate description.
    * @type {string}
    */
-  get candidate() {
+  get candidate(): string {
     return this._candidate;
   }
 
@@ -140,7 +186,7 @@ class RTCIceCandidate {
    * Media stream identification tag.
    * @type {string|null}
    */
-  get sdpMid() {
+  get sdpMid(): string | null {
     return this._sdpMid;
   }
 
@@ -148,7 +194,7 @@ class RTCIceCandidate {
    * Index of the m-line in the SDP this candidate is associated with.
    * @type {number|null}
    */
-  get sdpMLineIndex() {
+  get sdpMLineIndex(): number | null {
     return this._sdpMLineIndex;
   }
 
@@ -156,7 +202,7 @@ class RTCIceCandidate {
    * ICE username fragment.
    * @type {string|null}
    */
-  get usernameFragment() {
+  get usernameFragment(): string | null {
     return this._usernameFragment;
   }
 
@@ -164,7 +210,7 @@ class RTCIceCandidate {
    * Unique identifier for this candidate.
    * @type {string|null}
    */
-  get foundation() {
+  get foundation(): string | null {
     return this._parsedAttributes.foundation;
   }
 
@@ -172,7 +218,7 @@ class RTCIceCandidate {
    * Component identifier (rtp=1, rtcp=2).
    * @type {string|null}
    */
-  get component() {
+  get component(): string | null {
     return this._parsedAttributes.component;
   }
 
@@ -181,7 +227,7 @@ class RTCIceCandidate {
    * Higher priority candidates are preferred.
    * @type {number|null}
    */
-  get priority() {
+  get priority(): number | null {
     return this._parsedAttributes.priority;
   }
 
@@ -189,7 +235,7 @@ class RTCIceCandidate {
    * IP address of this candidate.
    * @type {string|null}
    */
-  get address() {
+  get address(): string | null {
     return this._parsedAttributes.address;
   }
 
@@ -197,7 +243,7 @@ class RTCIceCandidate {
    * Transport protocol (udp/tcp).
    * @type {string|null}
    */
-  get protocol() {
+  get protocol(): string | null {
     return this._parsedAttributes.protocol;
   }
 
@@ -205,7 +251,7 @@ class RTCIceCandidate {
    * Port number.
    * @type {number|null}
    */
-  get port() {
+  get port(): number | null {
     return this._parsedAttributes.port;
   }
 
@@ -213,7 +259,7 @@ class RTCIceCandidate {
    * Type of candidate (host, srflx, prflx, relay).
    * @type {string|null}
    */
-  get type() {
+  get type(): string | null {
     return this._parsedAttributes.type;
   }
 
@@ -222,7 +268,7 @@ class RTCIceCandidate {
    * Only applicable for TCP candidates.
    * @type {string|null}
    */
-  get tcpType() {
+  get tcpType(): string | null {
     return this._parsedAttributes.tcpType;
   }
 
@@ -230,7 +276,7 @@ class RTCIceCandidate {
    * Related address for reflexive/relay candidates.
    * @type {string|null}
    */
-  get relatedAddress() {
+  get relatedAddress(): string | null {
     return this._parsedAttributes.relatedAddress;
   }
 
@@ -238,7 +284,7 @@ class RTCIceCandidate {
    * Related port for reflexive/relay candidates.
    * @type {number|null}
    */
-  get relatedPort() {
+  get relatedPort(): number | null {
     return this._parsedAttributes.relatedPort;
   }
 
@@ -246,11 +292,11 @@ class RTCIceCandidate {
    * Converts candidate to JSON representation.
    * @returns {Object} JSON representation
    */
-  toJSON() {
-    const json = {
+  toJSON(): RTCIceCandidateJSON {
+    const json: RTCIceCandidateJSON = {
       candidate: this._candidate,
       sdpMid: this._sdpMid,
-      sdpMLineIndex: this._sdpMLineIndex
+      sdpMLineIndex: this._sdpMLineIndex,
     };
 
     if (this._usernameFragment) {
@@ -262,31 +308,31 @@ class RTCIceCandidate {
 
   /**
    * Creates an RTCIceCandidate from a candidate string.
-   * 
+   *
    * @param {string} candidateStr - ICE candidate string
    * @param {string|null} [sdpMid=null] - Media stream ID
    * @param {number|null} [sdpMLineIndex=0] - M-line index
    * @returns {RTCIceCandidate}
    */
-  static fromString(candidateStr, sdpMid = null, sdpMLineIndex = 0) {
+  static fromString(candidateStr: string, sdpMid: string | null = null, sdpMLineIndex: number | null = 0): RTCIceCandidate {
     return new RTCIceCandidate({
       candidate: candidateStr,
       sdpMid,
-      sdpMLineIndex
+      sdpMLineIndex,
     });
   }
 
   /**
    * Validates if a string is a valid candidate format.
-   * 
+   *
    * @param {string} candidateStr - String to validate
    * @returns {boolean} True if valid candidate format
    */
-  static isValid(candidateStr) {
+  static isValid(candidateStr: string): boolean {
     if (!candidateStr || typeof candidateStr !== 'string') {
       return false;
     }
-    
+
     // Must start with "candidate:"
     if (!candidateStr.startsWith('candidate:')) {
       return false;
@@ -298,4 +344,6 @@ class RTCIceCandidate {
   }
 }
 
-module.exports = RTCIceCandidate;
+export default RTCIceCandidate;
+export { RTCIceCandidate };
+export type { RTCIceCandidateInit, ParsedCandidateAttributes, RTCIceCandidateJSON };

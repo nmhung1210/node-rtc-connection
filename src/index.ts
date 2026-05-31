@@ -16,31 +16,31 @@
  * @author nmhung1210
  */
 
-'use strict';
-
 // Foundation
-const ByteBufferQueue = require('./foundation/ByteBufferQueue');
-const RTCError = require('./foundation/RTCError');
+import ByteBufferQueue from './foundation/ByteBufferQueue';
+import RTCError from './foundation/RTCError';
 
 // ICE / certificates
-const RTCIceCandidate = require('./ice/RTCIceCandidate');
-const RTCCertificate = require('./dtls/RTCCertificate');
+import RTCIceCandidate from './ice/RTCIceCandidate';
+import RTCCertificate from './dtls/RTCCertificate';
 
 // DataChannel
-const { RTCDataChannel, RTCDataChannelState } = require('./datachannel/RTCDataChannel');
+import { RTCDataChannel, RTCDataChannelState } from './datachannel/RTCDataChannel';
 
 // SDP
-const { RTCSessionDescription, RTCSdpType } = require('./sdp/RTCSessionDescription');
+import { RTCSessionDescription, RTCSdpType } from './sdp/RTCSessionDescription';
 
 // PeerConnection
-const {
+import {
   RTCPeerConnection,
   RTCSignalingState,
   RTCIceGatheringState,
   RTCPeerConnectionState,
-} = require('./peerconnection/RTCPeerConnection');
+} from './peerconnection/RTCPeerConnection';
 
-module.exports = {
+import pkg from '../package.json';
+
+export {
   // Foundation
   ByteBufferQueue,
   RTCError,
@@ -62,7 +62,11 @@ module.exports = {
   RTCSignalingState,
   RTCIceGatheringState,
   RTCPeerConnectionState,
-
-  // Version
-  version: require('../package.json').version,
 };
+
+export const version: string = pkg.version;
+
+// Re-export public types for consumers.
+export type { RTCDataChannelInit } from './datachannel/RTCDataChannel';
+export type { RTCSessionDescriptionInit } from './sdp/RTCSessionDescription';
+export type { TransportStackOptions } from './transport-stack';

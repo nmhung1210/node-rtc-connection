@@ -1,5 +1,5 @@
 /**
- * @file cipher.js
+ * @file cipher.ts
  * @description AEAD record protection for DTLS 1.2 with AES-128-GCM.
  * @module dtls/cipher
  *
@@ -17,13 +17,23 @@
 
 'use strict';
 
-const crypto = require('crypto');
-const { prf } = require('./prf');
+import * as crypto from 'crypto';
+import { prf } from './prf';
 
 const KEY_LEN = 16;
 const FIXED_IV_LEN = 4;
 const RECORD_IV_LEN = 8;
 const TAG_LEN = 16;
+
+/**
+ * Per-direction keys/IVs produced by {@link deriveKeys}.
+ */
+export interface DerivedKeys {
+  clientKey: Buffer;
+  serverKey: Buffer;
+  clientIV: Buffer;
+  serverIV: Buffer;
+}
 
 /**
  * Derive the master secret from the pre-master secret (RFC 5246 §8.1).
@@ -32,8 +42,17 @@ const TAG_LEN = 16;
  * @param {Buffer} serverRandom - 32 bytes
  * @returns {Buffer} 48-byte master secret
  */
-function deriveMasterSecret(preMasterSecret, clientRandom, serverRandom) {
-  return prf(preMasterSecret, 'master secret', Buffer.concat([clientRandom, serverRandom]), 48);
+export function deriveMasterSecret(
+  preMasterSecret: Buffer,
+  clientRandom: Buffer,
+  serverRandom: Buffer
+): Buffer {
+  return prf(
+    preMasterSecret,
+    'master secret',
+    Buffer.concat([clientRandom, serverRandom]),
+    48
+  );
 }
 
 /**
@@ -42,7 +61,10 @@ function deriveMasterSecret(preMasterSecret, clientRandom, serverRandom) {
  * @param {Buffer} sessionHash - hash of handshake messages through CKE
  * @returns {Buffer} 48-byte master secret
  */
-function deriveExtendedMasterSecret(preMasterSecret, sessionHash) {
+export function deriveExtendedMasterSecret(
+  preMasterSecret: Buffer,
+  sessionHash: Buffer
+): Buffer {
   return prf(preMasterSecret, 'extended master secret', sessionHash, 48);
 }
 
@@ -51,9 +73,13 @@ function deriveExtendedMasterSecret(preMasterSecret, sessionHash) {
  * @param {Buffer} masterSecret
  * @param {Buffer} clientRandom
  * @param {Buffer} serverRandom
- * @returns {{clientKey:Buffer,serverKey:Buffer,clientIV:Buffer,serverIV:Buffer}}
+ * @returns {DerivedKeys}
  */
-function deriveKeys(masterSecret, clientRandom, serverRandom) {
+export function deriveKeys(
+  masterSecret: Buffer,
+  clientRandom: Buffer,
+  serverRandom: Buffer
+): DerivedKeys {
   // Note the order: key_expansion uses server_random || client_random.
   const seed = Buffer.concat([serverRandom, clientRandom]);
   const need = 2 * KEY_LEN + 2 * FIXED_IV_LEN;
@@ -76,7 +102,13 @@ function deriveKeys(masterSecret, clientRandom, serverRandom) {
  * @param {number} plaintextLen
  * @returns {Buffer}
  */
-function buildAAD(epoch, seq, type, version, plaintextLen) {
+function buildAAD(
+  epoch: number,
+  seq: number,
+  type: number,
+  version: number,
+  plaintextLen: number
+): Buffer {
   const aad = Buffer.alloc(13);
   aad.writeUInt16BE(epoch, 0);
   aad.writeUIntBE(seq, 2, 6);
@@ -90,12 +122,15 @@ function buildAAD(epoch, seq, type, version, plaintextLen) {
  * @class GcmCipher
  * @description Holds the key/IV for one direction and does record AEAD.
  */
-class GcmCipher {
+export class GcmCipher {
+  private readonly _key: Buffer;
+  private readonly _fixedIv: Buffer;
+
   /**
    * @param {Buffer} key - 16-byte AES key
    * @param {Buffer} fixedIv - 4-byte implicit salt
    */
-  constructor(key, fixedIv) {
+  constructor(key: Buffer, fixedIv: Buffer) {
     this._key = key;
     this._fixedIv = fixedIv;
   }
@@ -109,7 +144,13 @@ class GcmCipher {
    * @param {Buffer} plaintext
    * @returns {Buffer} explicit_nonce || ciphertext || tag
    */
-  encrypt(epoch, seq, type, version, plaintext) {
+  encrypt(
+    epoch: number,
+    seq: number,
+    type: number,
+    version: number,
+    plaintext: Buffer
+  ): Buffer {
     // Explicit nonce: the 64-bit (epoch||seq) record number, unique per record.
     const explicitNonce = Buffer.alloc(RECORD_IV_LEN);
     explicitNonce.writeUInt16BE(epoch, 0);
@@ -135,7 +176,13 @@ class GcmCipher {
    * @returns {Buffer} plaintext
    * @throws on authentication failure
    */
-  decrypt(epoch, seq, type, version, record) {
+  decrypt(
+    epoch: number,
+    seq: number,
+    type: number,
+    version: number,
+    record: Buffer
+  ): Buffer {
     const explicitNonce = record.slice(0, RECORD_IV_LEN);
     const tag = record.slice(record.length - TAG_LEN);
     const ct = record.slice(RECORD_IV_LEN, record.length - TAG_LEN);
@@ -149,10 +196,3 @@ class GcmCipher {
     return Buffer.concat([decipher.update(ct), decipher.final()]);
   }
 }
-
-module.exports = {
-  deriveMasterSecret,
-  deriveExtendedMasterSecret,
-  deriveKeys,
-  GcmCipher,
-};

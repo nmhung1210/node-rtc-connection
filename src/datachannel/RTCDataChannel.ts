@@ -1,5 +1,5 @@
 /**
- * @file RTCDataChannel.js
+ * @file RTCDataChannel.ts
  * @description WebRTC DataChannel implementation for peer-to-peer data transfer.
  * @module datachannel/RTCDataChannel
  *
@@ -7,19 +7,25 @@
  * (https://www.w3.org/TR/webrtc/#rtcdatachannel).
  */
 
-const EventEmitter = require('events');
+import { EventEmitter } from 'events';
 
 /**
  * RTCDataChannelState - Current state of the data channel
  * @readonly
  * @enum {string}
  */
-const RTCDataChannelState = Object.freeze({
+export const RTCDataChannelState = Object.freeze({
   CONNECTING: 'connecting',
   OPEN: 'open',
   CLOSING: 'closing',
   CLOSED: 'closed'
 });
+
+type RTCDataChannelReadyState = 'connecting' | 'open' | 'closing' | 'closed';
+type RTCDataChannelBinaryType = 'arraybuffer' | 'blob';
+
+/** The transport sender hook: called with (Buffer, isBinary). */
+type RTCDataChannelSender = (data: Buffer, isBinary: boolean) => void;
 
 /**
  * RTCDataChannelInit - Configuration for creating a data channel
@@ -31,13 +37,21 @@ const RTCDataChannelState = Object.freeze({
  * @property {boolean} [negotiated=false] - Whether channel was negotiated out-of-band
  * @property {number} [id] - Channel ID (required if negotiated is true)
  */
+export interface RTCDataChannelInit {
+  ordered?: boolean;
+  maxPacketLifeTime?: number;
+  maxRetransmits?: number;
+  protocol?: string;
+  negotiated?: boolean;
+  id?: number;
+}
 
 /**
  * @class RTCDataChannel
  * @extends EventEmitter
  * @description Represents a bidirectional data channel between peers.
  * Provides reliable or unreliable data transfer with configurable ordering.
- * 
+ *
  * Events:
  * - 'open': Fired when the channel opens
  * - 'message': Fired when a message is received
@@ -45,29 +59,42 @@ const RTCDataChannelState = Object.freeze({
  * - 'error': Fired when an error occurs
  * - 'closing': Fired when the channel is closing
  * - 'close': Fired when the channel closes
- * 
+ *
  * @example
  * const dataChannel = peerConnection.createDataChannel('myChannel', {
  *   ordered: true,
  *   maxRetransmits: 3
  * });
- * 
+ *
  * dataChannel.on('open', () => {
  *   console.log('Channel opened');
  *   dataChannel.send('Hello!');
  * });
- * 
+ *
  * dataChannel.on('message', (event) => {
  *   console.log('Received:', event.data);
  * });
  */
-class RTCDataChannel extends EventEmitter {
+export class RTCDataChannel extends EventEmitter {
+  private _label: string;
+  private _ordered: boolean;
+  private _maxPacketLifeTime: number | null;
+  private _maxRetransmits: number | null;
+  private _protocol: string;
+  private _negotiated: boolean;
+  private _id: number | null;
+  private _readyState: RTCDataChannelReadyState;
+  private _bufferedAmount: number;
+  private _bufferedAmountLowThreshold: number;
+  private _binaryType: RTCDataChannelBinaryType;
+  private _sender?: RTCDataChannelSender;
+
   /**
    * Create an RTCDataChannel instance.
    * @param {string} label - Channel label
    * @param {RTCDataChannelInit} [init] - Channel configuration
    */
-  constructor(label, init = {}) {
+  constructor(label: string, init: RTCDataChannelInit = {}) {
     super();
 
     if (typeof label !== 'string') {
@@ -84,20 +111,19 @@ class RTCDataChannel extends EventEmitter {
     this._id = init.id !== undefined ? init.id : null;
 
     // State
-    this._readyState = RTCDataChannelState.CONNECTING;
+    this._readyState = RTCDataChannelState.CONNECTING as RTCDataChannelReadyState;
     this._bufferedAmount = 0;
     this._bufferedAmountLowThreshold = 0;
     this._binaryType = 'arraybuffer'; // or 'blob'
 
     // Message queue for when not open
-    this._messageQueue = [];
   }
 
   /**
    * Get the channel label.
    * @returns {string} Channel label
    */
-  get label() {
+  get label(): string {
     return this._label;
   }
 
@@ -105,7 +131,7 @@ class RTCDataChannel extends EventEmitter {
    * Check if messages are delivered in order.
    * @returns {boolean} True if ordered
    */
-  get ordered() {
+  get ordered(): boolean {
     return this._ordered;
   }
 
@@ -113,7 +139,7 @@ class RTCDataChannel extends EventEmitter {
    * Get the maximum packet lifetime in milliseconds.
    * @returns {number|null} Maximum lifetime or null if not set
    */
-  get maxPacketLifeTime() {
+  get maxPacketLifeTime(): number | null {
     return this._maxPacketLifeTime;
   }
 
@@ -121,7 +147,7 @@ class RTCDataChannel extends EventEmitter {
    * Get the maximum number of retransmissions.
    * @returns {number|null} Maximum retransmits or null if not set
    */
-  get maxRetransmits() {
+  get maxRetransmits(): number | null {
     return this._maxRetransmits;
   }
 
@@ -129,7 +155,7 @@ class RTCDataChannel extends EventEmitter {
    * Get the subprotocol name.
    * @returns {string} Protocol name
    */
-  get protocol() {
+  get protocol(): string {
     return this._protocol;
   }
 
@@ -137,7 +163,7 @@ class RTCDataChannel extends EventEmitter {
    * Check if the channel was negotiated out-of-band.
    * @returns {boolean} True if negotiated
    */
-  get negotiated() {
+  get negotiated(): boolean {
     return this._negotiated;
   }
 
@@ -145,7 +171,7 @@ class RTCDataChannel extends EventEmitter {
    * Get the channel ID.
    * @returns {number|null} Channel ID or null if not assigned
    */
-  get id() {
+  get id(): number | null {
     return this._id;
   }
 
@@ -153,7 +179,7 @@ class RTCDataChannel extends EventEmitter {
    * Get the current state of the channel.
    * @returns {string} Channel state
    */
-  get readyState() {
+  get readyState(): RTCDataChannelReadyState {
     return this._readyState;
   }
 
@@ -161,7 +187,7 @@ class RTCDataChannel extends EventEmitter {
    * Get the number of bytes queued to send.
    * @returns {number} Buffered amount in bytes
    */
-  get bufferedAmount() {
+  get bufferedAmount(): number {
     return this._bufferedAmount;
   }
 
@@ -169,7 +195,7 @@ class RTCDataChannel extends EventEmitter {
    * Get the threshold for bufferedamountlow event.
    * @returns {number} Threshold in bytes
    */
-  get bufferedAmountLowThreshold() {
+  get bufferedAmountLowThreshold(): number {
     return this._bufferedAmountLowThreshold;
   }
 
@@ -177,7 +203,7 @@ class RTCDataChannel extends EventEmitter {
    * Set the threshold for bufferedamountlow event.
    * @param {number} value - Threshold in bytes
    */
-  set bufferedAmountLowThreshold(value) {
+  set bufferedAmountLowThreshold(value: number) {
     this._bufferedAmountLowThreshold = value;
   }
 
@@ -185,7 +211,7 @@ class RTCDataChannel extends EventEmitter {
    * Get the binary data type.
    * @returns {string} 'arraybuffer' or 'blob'
    */
-  get binaryType() {
+  get binaryType(): RTCDataChannelBinaryType {
     return this._binaryType;
   }
 
@@ -194,7 +220,7 @@ class RTCDataChannel extends EventEmitter {
    * @param {string} value - 'arraybuffer' or 'blob'
    * @throws {TypeError} If value is invalid
    */
-  set binaryType(value) {
+  set binaryType(value: RTCDataChannelBinaryType) {
     if (value !== 'arraybuffer' && value !== 'blob') {
       throw new TypeError('binaryType must be "arraybuffer" or "blob"');
     }
@@ -206,9 +232,9 @@ class RTCDataChannel extends EventEmitter {
    * @returns {boolean} True if ordered and no packet lifetime/retransmit limits
    * @deprecated Use ordered, maxPacketLifeTime, and maxRetransmits instead
    */
-  get reliable() {
-    return this._ordered && 
-           this._maxPacketLifeTime === null && 
+  get reliable(): boolean {
+    return this._ordered &&
+           this._maxPacketLifeTime === null &&
            this._maxRetransmits === null;
   }
 
@@ -217,14 +243,14 @@ class RTCDataChannel extends EventEmitter {
    * @param {string|ArrayBuffer|ArrayBufferView|Blob} data - Data to send
    * @throws {Error} If channel is not open or data is invalid
    */
-  send(data) {
+  send(data: string | ArrayBuffer | ArrayBufferView | Buffer): void {
     if (this._readyState !== RTCDataChannelState.OPEN) {
       throw new Error('RTCDataChannel.readyState is not "open"');
     }
 
-    let dataToSend;
+    let dataToSend: Buffer;
     let byteLength = 0;
-    let isBinary;
+    let isBinary: boolean;
 
     if (typeof data === 'string') {
       dataToSend = Buffer.from(data, 'utf8');
@@ -239,10 +265,10 @@ class RTCDataChannel extends EventEmitter {
       byteLength = data.byteLength;
       isBinary = true;
     } else if (Buffer.isBuffer(data)) {
-      dataToSend = data;
-      byteLength = data.length;
+      dataToSend = data as Buffer;
+      byteLength = (data as Buffer).length;
       isBinary = true;
-    } else if (data && typeof data.arrayBuffer === 'function') {
+    } else if (data && typeof (data as { arrayBuffer?: unknown }).arrayBuffer === 'function') {
       // Blob-like object
       throw new Error('Blob sending not yet implemented');
     } else {
@@ -273,7 +299,7 @@ class RTCDataChannel extends EventEmitter {
    * Emit bufferedamountlow if appropriate
    * @private
    */
-  _emitBufferedAmountLow() {
+  _emitBufferedAmountLow(): void {
     if (this._bufferedAmount <= this._bufferedAmountLowThreshold) {
       this.emit('bufferedamountlow');
     }
@@ -282,18 +308,18 @@ class RTCDataChannel extends EventEmitter {
   /**
    * Close the data channel.
    */
-  close() {
-    if (this._readyState === RTCDataChannelState.CLOSING || 
+  close(): void {
+    if (this._readyState === RTCDataChannelState.CLOSING ||
         this._readyState === RTCDataChannelState.CLOSED) {
       return;
     }
 
-    this._setState(RTCDataChannelState.CLOSING);
-    
+    this._setState(RTCDataChannelState.CLOSING as RTCDataChannelReadyState);
+
     // Transition to closed asynchronously
     setImmediate(() => {
       if (this._readyState === RTCDataChannelState.CLOSING) {
-        this._setState(RTCDataChannelState.CLOSED);
+        this._setState(RTCDataChannelState.CLOSED as RTCDataChannelReadyState);
       }
     });
   }
@@ -303,7 +329,7 @@ class RTCDataChannel extends EventEmitter {
    * @param {string} newState - New state
    * @private
    */
-  _setState(newState) {
+  _setState(newState: RTCDataChannelReadyState): void {
     const oldState = this._readyState;
     if (oldState === newState) {
       return;
@@ -325,8 +351,8 @@ class RTCDataChannel extends EventEmitter {
    * Set channel to open state (internal use).
    * @private
    */
-  _setStateToOpen() {
-    this._setState(RTCDataChannelState.OPEN);
+  _setStateToOpen(): void {
+    this._setState(RTCDataChannelState.OPEN as RTCDataChannelReadyState);
   }
 
   /**
@@ -341,12 +367,12 @@ class RTCDataChannel extends EventEmitter {
    * @param {boolean} isBinary - Whether the frame was binary
    * @private
    */
-  _receiveMessage(data, isBinary) {
-    let payload;
+  _receiveMessage(data: Buffer, isBinary: boolean): void {
+    let payload: string | ArrayBuffer | Buffer;
     if (!isBinary) {
       payload = data.toString('utf8');
     } else if (this._binaryType === 'arraybuffer') {
-      payload = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      payload = (data.buffer as ArrayBuffer).slice(data.byteOffset, data.byteOffset + data.byteLength);
     } else {
       payload = data;
     }
@@ -359,7 +385,7 @@ class RTCDataChannel extends EventEmitter {
    * @param {(data:Buffer, isBinary:boolean)=>void} sender
    * @private
    */
-  _setSender(sender) {
+  _setSender(sender: RTCDataChannelSender): void {
     this._sender = sender;
   }
 
@@ -368,12 +394,7 @@ class RTCDataChannel extends EventEmitter {
    * @param {number} id - Channel ID
    * @private
    */
-  _setId(id) {
+  _setId(id: number): void {
     this._id = id;
   }
 }
-
-module.exports = {
-  RTCDataChannel,
-  RTCDataChannelState
-};

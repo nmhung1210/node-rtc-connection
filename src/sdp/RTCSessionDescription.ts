@@ -1,5 +1,5 @@
 /**
- * @file RTCSessionDescription.js
+ * @file RTCSessionDescription.ts
  * @description Session Description Protocol (SDP) representation
  * @module sdp/RTCSessionDescription
  *
@@ -14,7 +14,7 @@
  * @readonly
  * @enum {string}
  */
-const RTCSdpType = Object.freeze({
+export const RTCSdpType: Readonly<Record<string, string>> = Object.freeze({
   OFFER: 'offer',
   PRANSWER: 'pranswer',
   ANSWER: 'answer',
@@ -22,23 +22,42 @@ const RTCSdpType = Object.freeze({
 });
 
 /**
+ * Session description init object.
+ */
+export interface RTCSessionDescriptionInit {
+  type?: string;
+  sdp?: string;
+}
+
+/**
+ * JSON representation of an RTCSessionDescription.
+ */
+export interface RTCSessionDescriptionJSON {
+  type: string | null;
+  sdp: string | null;
+}
+
+/**
  * @class RTCSessionDescription
  * @description Represents a WebRTC session description (offer/answer)
- * 
+ *
  * @example
  * const desc = new RTCSessionDescription({
  *   type: 'offer',
  *   sdp: 'v=0\r\no=- 123456 2 IN IP4 127.0.0.1\r\n...'
  * });
  */
-class RTCSessionDescription {
+export class RTCSessionDescription {
+  private _type: string | null;
+  private _sdp: string | null;
+
   /**
    * Create an RTCSessionDescription instance.
    * @param {Object} [init] - Session description init
    * @param {string} [init.type] - SDP type (offer/answer/pranswer/rollback)
    * @param {string} [init.sdp] - SDP string
    */
-  constructor(init = {}) {
+  constructor(init: RTCSessionDescriptionInit = {}) {
     this._type = init.type || null;
     this._sdp = init.sdp || null;
 
@@ -52,7 +71,7 @@ class RTCSessionDescription {
    * Get the SDP type.
    * @returns {string|null} SDP type
    */
-  get type() {
+  get type(): string | null {
     return this._type;
   }
 
@@ -60,7 +79,7 @@ class RTCSessionDescription {
    * Set the SDP type.
    * @param {string} value - SDP type
    */
-  set type(value) {
+  set type(value: string | null) {
     if (value && !Object.values(RTCSdpType).includes(value)) {
       throw new TypeError(`Invalid SDP type: ${value}`);
     }
@@ -71,7 +90,7 @@ class RTCSessionDescription {
    * Get the SDP string.
    * @returns {string|null} SDP string
    */
-  get sdp() {
+  get sdp(): string | null {
     return this._sdp;
   }
 
@@ -79,7 +98,7 @@ class RTCSessionDescription {
    * Set the SDP string.
    * @param {string} value - SDP string
    */
-  set sdp(value) {
+  set sdp(value: string | null) {
     this._sdp = value;
   }
 
@@ -87,15 +106,10 @@ class RTCSessionDescription {
    * Convert to JSON representation.
    * @returns {Object} JSON representation
    */
-  toJSON() {
+  toJSON(): RTCSessionDescriptionJSON {
     return {
       type: this._type,
       sdp: this._sdp
     };
   }
 }
-
-module.exports = {
-  RTCSessionDescription,
-  RTCSdpType
-};

@@ -1,5 +1,5 @@
 /**
- * @file ice-agent.js
+ * @file ice-agent.ts
  * @description A small but RFC 8445-compliant ICE agent for a single data
  * component, with browser-compatible connectivity checks and TURN relay.
  * @module ice/ice-agent
@@ -24,22 +24,116 @@
 
 'use strict';
 
-const dgram = require('dgram');
-const os = require('os');
-const crypto = require('crypto');
-const EventEmitter = require('events');
-const S = require('./stun-message');
-const STUNClient = require('../stun/stun-client');
+import * as dgram from 'dgram';
+import * as os from 'os';
+import * as crypto from 'crypto';
+import { EventEmitter } from 'events';
+import * as S from './stun-message';
+import STUNClient from '../stun/stun-client';
 
-const TYPE_PREF = { host: 126, srflx: 100, prflx: 110, relay: 0 };
+const TYPE_PREF: Record<string, number> = { host: 126, srflx: 100, prflx: 110, relay: 0 };
 const CHECK_INTERVAL_MS = 50;
 const CHECK_TIMEOUT_MS = 10000;
+
+/** Remote info accompanying an inbound datagram. */
+interface RemoteInfo {
+  address: string;
+  port: number;
+}
+
+/**
+ * Uniform transport abstraction shared by host sockets and TURN relays.
+ */
+interface Transport {
+  kind: string;
+  send(buf: Buffer, address: string, port: number): void;
+  onMessage: ((msg: Buffer, rinfo: RemoteInfo) => void) | null;
+  close(): void;
+}
+
+/** A local ICE candidate. */
+interface LocalCandidate {
+  foundation: string;
+  component: number;
+  protocol: string;
+  priority: number;
+  address: string;
+  port: number;
+  type: string;
+  transport: Transport;
+  sdp: string;
+}
+
+/** A remote ICE candidate (parsed from an a=candidate line or object). */
+interface RemoteCandidate {
+  address: string;
+  port: number;
+  priority?: number;
+  type?: string;
+}
+
+/** A candidate pair under connectivity checking. */
+interface CandidatePair {
+  key?: string;
+  local: { transport: Transport } & Partial<LocalCandidate>;
+  remote: { address: string; port: number } & Partial<RemoteCandidate>;
+  state?: string;
+  nominated?: boolean;
+}
+
+/** Description of a single ICE server entry. */
+interface IceServer {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
+/** Options accepted by {@link IceAgent#gather}. */
+interface GatherOptions {
+  iceServers?: IceServer[];
+  iceTransportPolicy?: 'all' | 'relay';
+}
+
+/** Parsed query parameters from a STUN/TURN URL. */
+type IceServerParams = Record<string, string | true>;
+
+/** Result of {@link parseIceServerUrl}. */
+interface ParsedIceServerUrl {
+  scheme: string;
+  protocol: string;
+  host: string;
+  port: number;
+  transport: string;
+  params: IceServerParams;
+}
+
+/** Options accepted by the {@link IceAgent} constructor. */
+interface IceAgentOptions {
+  role: 'controlling' | 'controlled';
+  localUfrag: string;
+  localPwd: string;
+}
+
+/** Bookkeeping for a bound host socket and its derived candidate. */
+interface HostEntry {
+  socket: dgram.Socket;
+  address: string;
+  port: number;
+  transport: Transport;
+  candidate: LocalCandidate;
+}
+
+/** Extra fields stored alongside a candidate (related address/port). */
+interface CandidateExtra {
+  relatedAddress?: string;
+  relatedPort?: number;
+}
 
 /**
  * Compute an ICE candidate priority (RFC 8445 §5.1.2.1).
  */
-function candidatePriority(type, localPref = 65535, componentId = 1) {
-  return ((TYPE_PREF[type] << 24) + (localPref << 8) + (256 - componentId)) >>> 0;
+function candidatePriority(type: string, localPref = 65535, componentId = 1): number {
+  return ((TYPE_PREF[type]! << 24) + (localPref << 8) + (256 - componentId)) >>> 0;
 }
 
 /**
@@ -50,12 +144,12 @@ function candidatePriority(type, localPref = 65535, componentId = 1) {
  * @returns {{scheme:string, protocol:string, host:string, port:number,
  *            transport:string, params:Object}|null} null if the URL is invalid.
  */
-function parseIceServerUrl(url) {
+function parseIceServerUrl(url: string): ParsedIceServerUrl | null {
   const m = url.match(/^(stuns?|turns?):\/?\/?([^:?]+):?(\d+)?(?:\?(.+))?$/);
   if (!m) return null;
-  const scheme = m[1];
-  const host = m[2];
-  const params = {};
+  const scheme = m[1]!;
+  const host = m[2]!;
+  const params: IceServerParams = {};
   if (m[4]) {
     for (const kv of m[4].split('&')) {
       if (!kv) continue;
@@ -69,8 +163,8 @@ function parseIceServerUrl(url) {
     scheme,
     protocol: scheme, // alias
     host,
-    port: parseInt(m[3] || defaultPort, 10),
-    transport: params.transport || 'udp',
+    port: parseInt(m[3] || String(defaultPort), 10),
+    transport: typeof params.transport === 'string' ? params.transport : 'udp',
     params,
   };
 }
@@ -78,19 +172,23 @@ function parseIceServerUrl(url) {
 /**
  * A host transport: a bound UDP socket. send() targets an arbitrary peer.
  */
-class HostTransport {
-  constructor(socket) {
+class HostTransport implements Transport {
+  kind: string;
+  socket: dgram.Socket;
+  onMessage: ((msg: Buffer, rinfo: RemoteInfo) => void) | null;
+
+  constructor(socket: dgram.Socket) {
     this.kind = 'host';
     this.socket = socket;
     this.onMessage = null;
-    socket.on('message', (msg, rinfo) => {
+    socket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
       if (this.onMessage) this.onMessage(msg, { address: rinfo.address, port: rinfo.port });
     });
   }
-  send(buf, address, port) {
+  send(buf: Buffer, address: string, port: number): void {
     this.socket.send(buf, port, address);
   }
-  close() {
+  close(): void {
     try { this.socket.close(); } catch (_) {}
   }
 }
@@ -100,17 +198,22 @@ class HostTransport {
  * for the peer (idempotent best-effort) and forwards via SEND indication;
  * inbound arrives as DATA indications on the TURN client's 'data' event.
  */
-class RelayTransport {
-  constructor(turnClient) {
+class RelayTransport implements Transport {
+  kind: string;
+  client: STUNClient;
+  onMessage: ((msg: Buffer, rinfo: RemoteInfo) => void) | null;
+  _permitted: Set<string>;
+
+  constructor(turnClient: STUNClient) {
     this.kind = 'relay';
     this.client = turnClient;
     this.onMessage = null;
     this._permitted = new Set();
-    turnClient.on('data', (data, peer) => {
+    turnClient.on('data', (data: Buffer, peer: { address: string; port: number }) => {
       if (this.onMessage) this.onMessage(data, { address: peer.address, port: peer.port });
     });
   }
-  send(buf, address, port) {
+  send(buf: Buffer, address: string, port: number): void {
     const key = `${address}:${port}`;
     if (!this._permitted.has(key)) {
       this._permitted.add(key);
@@ -122,19 +225,38 @@ class RelayTransport {
       this.client.sendIndication(address, port, buf).catch(() => {});
     }
   }
-  close() {
+  close(): void {
     try { this.client.close(); } catch (_) {}
   }
 }
 
 class IceAgent extends EventEmitter {
+  role: 'controlling' | 'controlled';
+  localUfrag: string;
+  localPwd: string;
+  remoteUfrag: string | null;
+  remotePwd: string | null;
+
+  _tieBreaker: Buffer;
+  _transports: Transport[];
+  _localCandidates: LocalCandidate[];
+  _remoteCandidates: RemoteCandidate[];
+  _pairs: CandidatePair[];
+  _selected: CandidatePair | null;
+  _closed: boolean;
+  _checkTimer: NodeJS.Timeout | null;
+  _timeoutTimer: NodeJS.Timeout | null;
+  _connected: boolean;
+  _pendingChecks: Map<string, CandidatePair>;
+  _validPair?: CandidatePair;
+
   /**
    * @param {Object} opts
    * @param {'controlling'|'controlled'} opts.role
    * @param {string} opts.localUfrag
    * @param {string} opts.localPwd
    */
-  constructor(opts) {
+  constructor(opts: IceAgentOptions) {
     super();
     this.role = opts.role;
     this.localUfrag = opts.localUfrag;
@@ -162,7 +284,7 @@ class IceAgent extends EventEmitter {
    * @param {Array<{urls:string|string[],username?:string,credential?:string}>} [opts.iceServers]
    * @param {'all'|'relay'} [opts.iceTransportPolicy='all']
    */
-  async gather(opts = {}) {
+  async gather(opts: GatherOptions = {}): Promise<void> {
     const iceServers = opts.iceServers || [];
     const relayOnly = opts.iceTransportPolicy === 'relay';
 
@@ -182,7 +304,7 @@ class IceAgent extends EventEmitter {
           }
         } catch (err) {
           // A failed server must not abort gathering; just skip it.
-          this.emit('gathererror', { url, error: err.message });
+          this.emit('gathererror', { url, error: err instanceof Error ? err.message : String(err) });
         }
       }
     }
@@ -196,27 +318,28 @@ class IceAgent extends EventEmitter {
   }
 
   /** Bind one UDP socket per non-internal IPv4 interface; emit host candidates. */
-  async _gatherHosts() {
+  async _gatherHosts(): Promise<HostEntry[]> {
     const ifaces = os.networkInterfaces();
-    const addrs = [];
+    const addrs: string[] = [];
     for (const list of Object.values(ifaces)) {
+      if (!list) continue;
       for (const a of list) {
         if (a.family === 'IPv4' && !a.internal) addrs.push(a.address);
       }
     }
     if (addrs.length === 0) addrs.push('127.0.0.1');
 
-    const entries = [];
+    const entries: HostEntry[] = [];
     for (const address of addrs) {
       entries.push(await this._bindHost(address));
     }
     return entries;
   }
 
-  _bindHost(address) {
-    return new Promise((resolve, reject) => {
+  _bindHost(address: string): Promise<HostEntry> {
+    return new Promise((resolve, _reject) => {
       const socket = dgram.createSocket('udp4');
-      socket.on('error', (err) => this.emit('error', err));
+      socket.on('error', (err: Error) => this.emit('error', err));
       socket.bind(0, address, () => {
         const { port } = socket.address();
         const transport = new HostTransport(socket);
@@ -229,11 +352,11 @@ class IceAgent extends EventEmitter {
   }
 
   /** Discover the server-reflexive address via a STUN binding request. */
-  async _gatherSrflx(parsed, hostEntry) {
+  async _gatherSrflx(parsed: ParsedIceServerUrl, hostEntry: HostEntry | undefined): Promise<void> {
     if (!hostEntry) return;
     const stun = new STUNClient({ server: parsed.host, port: parsed.port });
     try {
-      const addr = await stun.getReflexiveAddress();
+      const addr = await stun.getReflexiveAddress() as { address: string; port: number };
       // srflx is reached through the host socket; reuse its transport.
       this._addLocalCandidate('srflx', addr.address, addr.port, hostEntry.transport, {
         relatedAddress: hostEntry.address, relatedPort: hostEntry.port,
@@ -244,7 +367,7 @@ class IceAgent extends EventEmitter {
   }
 
   /** Allocate a TURN relay and expose it as a relay candidate + transport. */
-  async _gatherRelay(parsed, server) {
+  async _gatherRelay(parsed: ParsedIceServerUrl, server: IceServer): Promise<void> {
     if (!server.username || !server.credential) {
       throw new Error('TURN server requires username and credential');
     }
@@ -255,7 +378,7 @@ class IceAgent extends EventEmitter {
       credential: server.credential,
       transport: parsed.transport,
     });
-    const alloc = await turn.allocateRelay(600);
+    const alloc = await turn.allocateRelay(600) as { relayedAddress: string; relayedPort: number };
     const transport = new RelayTransport(turn);
     transport.onMessage = (msg, rinfo) => this._onDatagram(transport, msg, rinfo);
     this._transports.push(transport);
@@ -264,7 +387,13 @@ class IceAgent extends EventEmitter {
     });
   }
 
-  _addLocalCandidate(type, address, port, transport, extra = {}) {
+  _addLocalCandidate(
+    type: string,
+    address: string,
+    port: number,
+    transport: Transport,
+    extra: CandidateExtra = {}
+  ): LocalCandidate {
     const foundation = crypto.createHash('md5')
       .update(`${type}:${address}:${transport.kind}`).digest('hex').slice(0, 8);
     const priority = candidatePriority(type);
@@ -272,18 +401,18 @@ class IceAgent extends EventEmitter {
     if (extra.relatedAddress) {
       sdp += ` raddr ${extra.relatedAddress} rport ${extra.relatedPort}`;
     }
-    const cand = { foundation, component: 1, protocol: 'udp', priority, address, port, type, transport, sdp };
+    const cand: LocalCandidate = { foundation, component: 1, protocol: 'udp', priority, address, port, type, transport, sdp };
     this._localCandidates.push(cand);
     this.emit('candidate', cand);
     return cand;
   }
 
-  getLocalCandidates() {
+  getLocalCandidates(): LocalCandidate[] {
     return this._localCandidates.slice();
   }
 
   /** Set remote ICE credentials (from the peer's SDP). */
-  setRemoteCredentials(ufrag, pwd) {
+  setRemoteCredentials(ufrag: string, pwd: string): void {
     this.remoteUfrag = ufrag;
     this.remotePwd = pwd;
   }
@@ -292,7 +421,7 @@ class IceAgent extends EventEmitter {
    * Add a remote candidate (parsed from an a=candidate line or object).
    * @param {{address:string, port:number, priority?:number, type?:string}} cand
    */
-  addRemoteCandidate(cand) {
+  addRemoteCandidate(cand: RemoteCandidate): void {
     if (!cand || !cand.address || !cand.port) return;
     // Browsers obfuscate host candidates as mDNS ".local" hostnames. We don't
     // run an mDNS resolver, so these are unusable and sending checks to them
@@ -305,13 +434,13 @@ class IceAgent extends EventEmitter {
   }
 
   /** Begin connectivity checks (call once remote creds + candidates exist). */
-  start() {
+  start(): void {
     if (this.remotePwd && this._remoteCandidates.length > 0) {
       this._startChecks();
     }
   }
 
-  _formPairs() {
+  _formPairs(): void {
     for (const local of this._localCandidates) {
       for (const remote of this._remoteCandidates) {
         const key = `${local.type}:${local.address}:${local.port}->${remote.address}:${remote.port}`;
@@ -321,7 +450,7 @@ class IceAgent extends EventEmitter {
     }
   }
 
-  _startChecks() {
+  _startChecks(): void {
     if (this._checkTimer || this._closed) return;
     this._checkTimer = setInterval(() => this._tick(), CHECK_INTERVAL_MS);
     if (this._checkTimer.unref) this._checkTimer.unref();
@@ -333,12 +462,12 @@ class IceAgent extends EventEmitter {
     this._tick();
   }
 
-  _stopChecks() {
+  _stopChecks(): void {
     if (this._checkTimer) { clearInterval(this._checkTimer); this._checkTimer = null; }
     if (this._timeoutTimer) { clearTimeout(this._timeoutTimer); this._timeoutTimer = null; }
   }
 
-  _tick() {
+  _tick(): void {
     if (this._closed) return;
     for (const pair of this._pairs) {
       if (pair.state === 'succeeded') continue;
@@ -346,12 +475,12 @@ class IceAgent extends EventEmitter {
     }
   }
 
-  _sendCheck(pair) {
+  _sendCheck(pair: CandidatePair): void {
     const txid = crypto.randomBytes(12);
     const username = `${this.remoteUfrag}:${this.localUfrag}`;
     const builder = new S.StunMessageBuilder(S.MSG_TYPE.BINDING_REQUEST, txid)
       .addUsername(username)
-      .addPriority(pair.local.priority);
+      .addPriority(pair.local.priority!);
 
     if (this.role === 'controlling') {
       builder.addIceControlling(this._tieBreaker);
@@ -360,15 +489,15 @@ class IceAgent extends EventEmitter {
       builder.addIceControlled(this._tieBreaker);
     }
 
-    const msg = builder.build(this.remotePwd);
+    const msg = builder.build(this.remotePwd ?? undefined);
     this._pendingChecks.set(txid.toString('hex'), pair);
     pair.state = 'in-progress';
     pair.local.transport.send(msg, pair.remote.address, pair.remote.port);
   }
 
-  _onDatagram(transport, msg, rinfo) {
+  _onDatagram(transport: Transport, msg: Buffer, rinfo: RemoteInfo): void {
     if (msg.length === 0) return;
-    const b0 = msg[0];
+    const b0 = msg[0]!;
     // RFC 7983 demux: 0-3 => STUN, 20-63 => DTLS, else ignore.
     if (b0 <= 3) {
       this._onStun(transport, msg, rinfo);
@@ -377,7 +506,7 @@ class IceAgent extends EventEmitter {
     }
   }
 
-  _onStun(transport, msg, rinfo) {
+  _onStun(transport: Transport, msg: Buffer, rinfo: RemoteInfo): void {
     const parsed = S.parse(msg);
     if (!parsed) return;
     if (parsed.type === S.MSG_TYPE.BINDING_REQUEST) {
@@ -387,7 +516,7 @@ class IceAgent extends EventEmitter {
     }
   }
 
-  _handleBindingRequest(transport, parsed, rinfo) {
+  _handleBindingRequest(transport: Transport, parsed: S.ParsedStunMessage, rinfo: RemoteInfo): void {
     // Verify MESSAGE-INTEGRITY with our local password (peer keyed it with our pwd).
     if (this.localPwd && !S.verifyIntegrity(parsed.raw, this.localPwd)) {
       return; // drop unauthenticated checks
@@ -412,7 +541,7 @@ class IceAgent extends EventEmitter {
     }
   }
 
-  _handleBindingSuccess(transport, parsed, rinfo) {
+  _handleBindingSuccess(_transport: Transport, parsed: S.ParsedStunMessage, _rinfo: RemoteInfo): void {
     const pair = this._pendingChecks.get(parsed.transactionId.toString('hex'));
     if (!pair) return;
     this._pendingChecks.delete(parsed.transactionId.toString('hex'));
@@ -425,16 +554,16 @@ class IceAgent extends EventEmitter {
     }
   }
 
-  _findPair(transport, rinfo) {
+  _findPair(transport: Transport, rinfo: RemoteInfo): CandidatePair | undefined {
     return this._pairs.find((p) =>
       p.remote.address === rinfo.address && p.remote.port === rinfo.port && p.local.transport === transport);
   }
 
-  _syntheticPair(transport, rinfo) {
+  _syntheticPair(transport: Transport, rinfo: RemoteInfo): CandidatePair {
     return { local: { transport }, remote: { address: rinfo.address, port: rinfo.port } };
   }
 
-  _select(pair) {
+  _select(pair: CandidatePair | undefined): void {
     if (this._selected || !pair) return;
     this._selected = pair;
     this._connected = true;
@@ -452,21 +581,21 @@ class IceAgent extends EventEmitter {
    * Send application (DTLS) data over the selected path.
    * @param {Buffer} data
    */
-  send(data) {
+  send(data: Buffer): void {
     if (!this._selected) throw new Error('ICE not connected');
     this._selected.local.transport.send(data, this._selected.remote.address, this._selected.remote.port);
   }
 
-  getSelectedPair() {
+  getSelectedPair(): CandidatePair | null {
     return this._selected;
   }
 
   /** Type of the selected local candidate ('host'|'srflx'|'relay'|'prflx'). */
-  getSelectedCandidateType() {
+  getSelectedCandidateType(): string | null | undefined {
     return this._selected ? this._selected.local.type : null;
   }
 
-  close() {
+  close(): void {
     if (this._closed) return;
     this._closed = true;
     this._stopChecks();
@@ -478,4 +607,4 @@ class IceAgent extends EventEmitter {
   }
 }
 
-module.exports = { IceAgent, candidatePriority, parseIceServerUrl };
+export { IceAgent, candidatePriority, parseIceServerUrl };

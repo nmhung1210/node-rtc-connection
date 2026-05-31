@@ -1,10 +1,10 @@
 /**
- * @fileoverview ByteBufferQueue - Efficient byte buffer with O(1) append and O(n) read.
+ * @file ByteBufferQueue - Efficient byte buffer with O(1) append and O(n) read.
  *
  * This class provides efficient management of byte buffers with O(1) append operations
  * and O(n) read operations. Clients can append entire buffers then copy data out across
  * buffer boundaries.
- * 
+ *
  * @license MIT
  * @author nmhung1210
  */
@@ -13,7 +13,7 @@
 
 /**
  * A ByteBufferQueue manages a queue of byte buffers with efficient operations.
- * 
+ *
  * Invariants maintained:
  * - size_ = sum of all buffer sizes - frontBufferOffset_
  * - No buffer in the queue is empty
@@ -21,24 +21,28 @@
  * - Otherwise, frontBufferOffset_ < front buffer size
  */
 class ByteBufferQueue {
+  /**
+   * Total number of bytes available to read.
+   * @private {number}
+   */
+  private _size: number;
+
+  /**
+   * Double-ended queue of byte buffers.
+   * Append() pushes to the back, ReadInto() consumes from the front.
+   * @private {Buffer[]}
+   */
+  private _buffers: Buffer[];
+
+  /**
+   * Offset from which to start reading the front buffer.
+   * @private {number}
+   */
+  private _frontBufferOffset: number;
+
   constructor() {
-    /**
-     * Total number of bytes available to read.
-     * @private {number}
-     */
     this._size = 0;
-
-    /**
-     * Double-ended queue of byte buffers.
-     * Append() pushes to the back, ReadInto() consumes from the front.
-     * @private {Buffer[]}
-     */
     this._buffers = [];
-
-    /**
-     * Offset from which to start reading the front buffer.
-     * @private {number}
-     */
     this._frontBufferOffset = 0;
   }
 
@@ -46,7 +50,7 @@ class ByteBufferQueue {
    * Number of bytes that can be read.
    * @returns {number}
    */
-  get size() {
+  get size(): number {
     return this._size;
   }
 
@@ -54,19 +58,19 @@ class ByteBufferQueue {
    * Returns true if no bytes are available to read.
    * @returns {boolean}
    */
-  get empty() {
+  get empty(): boolean {
     return this._size === 0;
   }
 
   /**
    * Copies data into the given buffer. Consumes bytes from the queue.
    * Returns the number of bytes written to bufferOut.
-   * 
+   *
    * @param {Buffer} bufferOut - Destination buffer to read into
    * @returns {number} Number of bytes actually read
    * @throws {TypeError} If bufferOut is not a Buffer
    */
-  readInto(bufferOut) {
+  readInto(bufferOut: Buffer): number {
     if (!Buffer.isBuffer(bufferOut)) {
       throw new TypeError('bufferOut must be a Buffer');
     }
@@ -75,7 +79,7 @@ class ByteBufferQueue {
     let outputOffset = 0;
 
     while (outputOffset < bufferOut.length && this._buffers.length > 0) {
-      const frontBuffer = this._buffers[0];
+      const frontBuffer = this._buffers[0]!;
       const availableInFront = frontBuffer.length - this._frontBufferOffset;
       const remainingOutput = bufferOut.length - outputOffset;
       const toCopy = Math.min(availableInFront, remainingOutput);
@@ -109,11 +113,11 @@ class ByteBufferQueue {
   /**
    * Appends a buffer to the queue. Takes ownership of the buffer.
    * Empty buffers are ignored.
-   * 
+   *
    * @param {Buffer} buffer - Buffer to append
    * @throws {TypeError} If buffer is not a Buffer
    */
-  append(buffer) {
+  append(buffer: Buffer): void {
     if (!Buffer.isBuffer(buffer)) {
       throw new TypeError('buffer must be a Buffer');
     }
@@ -130,7 +134,7 @@ class ByteBufferQueue {
   /**
    * Clears all stored buffers.
    */
-  clear() {
+  clear(): void {
     this._buffers = [];
     this._frontBufferOffset = 0;
     this._size = 0;
@@ -139,12 +143,12 @@ class ByteBufferQueue {
 
   /**
    * Reads and consumes exactly n bytes.
-   * 
+   *
    * @param {number} n - Number of bytes to read
    * @returns {Buffer} Buffer containing exactly n bytes
    * @throws {RangeError} If fewer than n bytes are available
    */
-  read(n) {
+  read(n: number): Buffer {
     if (n > this._size) {
       throw new RangeError(`Cannot read ${n} bytes, only ${this._size} available`);
     }
@@ -164,11 +168,11 @@ class ByteBufferQueue {
 
   /**
    * Peeks at data without consuming it.
-   * 
+   *
    * @param {number} [n=this._size] - Number of bytes to peek
    * @returns {Buffer} Buffer containing up to n bytes (not consumed)
    */
-  peek(n = this._size) {
+  peek(n: number = this._size): Buffer {
     const peekAmount = Math.min(n, this._size);
     if (peekAmount === 0) {
       return Buffer.allocUnsafe(0);
@@ -180,7 +184,7 @@ class ByteBufferQueue {
     let offset = this._frontBufferOffset;
 
     while (written < peekAmount && bufferIndex < this._buffers.length) {
-      const buffer = this._buffers[bufferIndex];
+      const buffer = this._buffers[bufferIndex]!;
       const available = buffer.length - offset;
       const toCopy = Math.min(available, peekAmount - written);
 
@@ -199,7 +203,7 @@ class ByteBufferQueue {
    * @private
    * @throws {Error} If invariants are violated
    */
-  _checkInvariants() {
+  private _checkInvariants(): void {
     if (process.env.NODE_ENV !== 'production') {
       let bufferSizeSum = 0;
       for (const buffer of this._buffers) {
@@ -221,7 +225,7 @@ class ByteBufferQueue {
           throw new Error('Invariant violation: offset non-zero with empty queue');
         }
       } else {
-        if (this._frontBufferOffset >= this._buffers[0].length) {
+        if (this._frontBufferOffset >= this._buffers[0]!.length) {
           throw new Error('Invariant violation: offset >= front buffer size');
         }
       }
@@ -229,4 +233,5 @@ class ByteBufferQueue {
   }
 }
 
-module.exports = ByteBufferQueue;
+export default ByteBufferQueue;
+export { ByteBufferQueue };

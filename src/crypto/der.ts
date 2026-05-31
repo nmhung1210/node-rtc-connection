@@ -1,5 +1,5 @@
 /**
- * @file der.js
+ * @file der.ts
  * @description Minimal ASN.1 DER encoder/decoder for X.509 certificate generation.
  * @module crypto/der
  *
@@ -13,7 +13,7 @@
 'use strict';
 
 // ASN.1 universal tag numbers (class 0, primitive/constructed as noted).
-const TAG = Object.freeze({
+export const TAG = Object.freeze({
   BOOLEAN: 0x01,
   INTEGER: 0x02,
   BIT_STRING: 0x03,
@@ -34,11 +34,11 @@ const TAG = Object.freeze({
  * @param {number} len
  * @returns {Buffer}
  */
-function encodeLength(len) {
+export function encodeLength(len: number): Buffer {
   if (len < 0x80) {
     return Buffer.from([len]);
   }
-  const bytes = [];
+  const bytes: number[] = [];
   let n = len;
   while (n > 0) {
     bytes.unshift(n & 0xff);
@@ -53,7 +53,7 @@ function encodeLength(len) {
  * @param {Buffer} body
  * @returns {Buffer}
  */
-function tlv(tag, body) {
+export function tlv(tag: number, body: Buffer): Buffer {
   return Buffer.concat([Buffer.from([tag]), encodeLength(body.length), body]);
 }
 
@@ -63,13 +63,13 @@ function tlv(tag, body) {
  * @param {Buffer} buf - Big-endian magnitude.
  * @returns {Buffer}
  */
-function encodeIntegerFromBuffer(buf) {
+export function encodeIntegerFromBuffer(buf: Buffer): Buffer {
   let start = 0;
   while (start < buf.length - 1 && buf[start] === 0x00) {
     start++; // strip leading zeros (keep at least one byte)
   }
   let body = buf.slice(start);
-  if (body[0] & 0x80) {
+  if (body[0]! & 0x80) {
     body = Buffer.concat([Buffer.from([0x00]), body]);
   }
   return tlv(TAG.INTEGER, body);
@@ -80,17 +80,17 @@ function encodeIntegerFromBuffer(buf) {
  * @param {number} value
  * @returns {Buffer}
  */
-function encodeInteger(value) {
+export function encodeInteger(value: number): Buffer {
   if (value === 0) {
     return tlv(TAG.INTEGER, Buffer.from([0x00]));
   }
-  const bytes = [];
+  const bytes: number[] = [];
   let n = value;
   while (n > 0) {
     bytes.unshift(n & 0xff);
     n = Math.floor(n / 256);
   }
-  if (bytes[0] & 0x80) {
+  if (bytes[0]! & 0x80) {
     bytes.unshift(0x00);
   }
   return tlv(TAG.INTEGER, Buffer.from(bytes));
@@ -101,14 +101,14 @@ function encodeInteger(value) {
  * @param {string} oid - e.g. "1.2.840.10045.2.1"
  * @returns {Buffer}
  */
-function encodeOID(oid) {
+export function encodeOID(oid: string): Buffer {
   const parts = oid.split('.').map(Number);
   if (parts.length < 2) {
     throw new Error(`Invalid OID: ${oid}`);
   }
-  const bytes = [40 * parts[0] + parts[1]];
+  const bytes = [40 * parts[0]! + parts[1]!];
   for (let i = 2; i < parts.length; i++) {
-    let v = parts[i];
+    let v = parts[i]!;
     const stack = [v & 0x7f];
     v = Math.floor(v / 128);
     while (v > 0) {
@@ -125,7 +125,7 @@ function encodeOID(oid) {
  * @param {Buffer} data
  * @returns {Buffer}
  */
-function encodeBitString(data) {
+export function encodeBitString(data: Buffer): Buffer {
   return tlv(TAG.BIT_STRING, Buffer.concat([Buffer.from([0x00]), data]));
 }
 
@@ -134,7 +134,7 @@ function encodeBitString(data) {
  * @param {Buffer} data
  * @returns {Buffer}
  */
-function encodeOctetString(data) {
+export function encodeOctetString(data: Buffer): Buffer {
   return tlv(TAG.OCTET_STRING, data);
 }
 
@@ -143,7 +143,7 @@ function encodeOctetString(data) {
  * @param {Buffer[]} components
  * @returns {Buffer}
  */
-function encodeSequence(components) {
+export function encodeSequence(components: Buffer[]): Buffer {
   return tlv(TAG.SEQUENCE, Buffer.concat(components));
 }
 
@@ -152,7 +152,7 @@ function encodeSequence(components) {
  * @param {Buffer[]} components
  * @returns {Buffer}
  */
-function encodeSet(components) {
+export function encodeSet(components: Buffer[]): Buffer {
   return tlv(TAG.SET, Buffer.concat(components));
 }
 
@@ -160,7 +160,7 @@ function encodeSet(components) {
  * Encode NULL.
  * @returns {Buffer}
  */
-function encodeNull() {
+export function encodeNull(): Buffer {
   return tlv(TAG.NULL, Buffer.alloc(0));
 }
 
@@ -169,7 +169,7 @@ function encodeNull() {
  * @param {string} str
  * @returns {Buffer}
  */
-function encodeUTF8String(str) {
+export function encodeUTF8String(str: string): Buffer {
   return tlv(TAG.UTF8_STRING, Buffer.from(str, 'utf8'));
 }
 
@@ -179,7 +179,7 @@ function encodeUTF8String(str) {
  * @param {Buffer} body
  * @returns {Buffer}
  */
-function encodeExplicit(n, body) {
+export function encodeExplicit(n: number, body: Buffer): Buffer {
   return tlv(0xa0 | n, body);
 }
 
@@ -189,9 +189,9 @@ function encodeExplicit(n, body) {
  * @param {Date} date
  * @returns {Buffer}
  */
-function encodeTime(date) {
+export function encodeTime(date: Date): Buffer {
   const yyyy = date.getUTCFullYear();
-  const pad = (v, n = 2) => String(v).padStart(n, '0');
+  const pad = (v: number, n = 2): string => String(v).padStart(n, '0');
   const mm = pad(date.getUTCMonth() + 1);
   const dd = pad(date.getUTCDate());
   const hh = pad(date.getUTCHours());
@@ -203,20 +203,3 @@ function encodeTime(date) {
   }
   return tlv(TAG.GENERALIZED_TIME, Buffer.from(`${yyyy}${mm}${dd}${hh}${mi}${ss}Z`, 'ascii'));
 }
-
-module.exports = {
-  TAG,
-  encodeLength,
-  tlv,
-  encodeInteger,
-  encodeIntegerFromBuffer,
-  encodeOID,
-  encodeBitString,
-  encodeOctetString,
-  encodeSequence,
-  encodeSet,
-  encodeNull,
-  encodeUTF8String,
-  encodeExplicit,
-  encodeTime,
-};

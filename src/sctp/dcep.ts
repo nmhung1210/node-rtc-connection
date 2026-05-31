@@ -1,5 +1,5 @@
 /**
- * @file dcep.js
+ * @file dcep.ts
  * @description Data Channel Establishment Protocol (RFC 8832) message codec.
  * @module sctp/dcep
  *
@@ -9,13 +9,13 @@
 
 'use strict';
 
-const MESSAGE_TYPE = Object.freeze({
+export const MESSAGE_TYPE = Object.freeze({
   DATA_CHANNEL_ACK: 0x02,
   DATA_CHANNEL_OPEN: 0x03,
 });
 
 // Channel types (reliability/ordering), RFC 8832 §5.1.
-const CHANNEL_TYPE = Object.freeze({
+export const CHANNEL_TYPE = Object.freeze({
   RELIABLE: 0x00,
   RELIABLE_UNORDERED: 0x80,
   PARTIAL_RELIABLE_REXMIT: 0x01,
@@ -23,6 +23,23 @@ const CHANNEL_TYPE = Object.freeze({
   PARTIAL_RELIABLE_TIMED: 0x02,
   PARTIAL_RELIABLE_TIMED_UNORDERED: 0x82,
 });
+
+export interface OpenParams {
+  channelType: number;
+  priority?: number;
+  reliabilityParameter?: number;
+  label?: string;
+  protocol?: string;
+}
+
+export interface DecodedOpen {
+  channelType: number;
+  priority: number;
+  reliabilityParameter: number;
+  label: string;
+  protocol: string;
+  unordered: boolean;
+}
 
 /**
  * Encode a DATA_CHANNEL_OPEN message.
@@ -34,7 +51,7 @@ const CHANNEL_TYPE = Object.freeze({
  * @param {string} p.protocol
  * @returns {Buffer}
  */
-function encodeOpen({ channelType, priority = 0, reliabilityParameter = 0, label = '', protocol = '' }) {
+export function encodeOpen({ channelType, priority = 0, reliabilityParameter = 0, label = '', protocol = '' }: OpenParams): Buffer {
   const labelBuf = Buffer.from(label, 'utf8');
   const protoBuf = Buffer.from(protocol, 'utf8');
   const buf = Buffer.alloc(12 + labelBuf.length + protoBuf.length);
@@ -54,7 +71,7 @@ function encodeOpen({ channelType, priority = 0, reliabilityParameter = 0, label
  * @param {Buffer} buf
  * @returns {Object}
  */
-function decodeOpen(buf) {
+export function decodeOpen(buf: Buffer): DecodedOpen {
   const channelType = buf.readUInt8(1);
   const priority = buf.readUInt16BE(2);
   const reliabilityParameter = buf.readUInt32BE(4);
@@ -67,13 +84,11 @@ function decodeOpen(buf) {
 }
 
 /** Encode a DATA_CHANNEL_ACK message. */
-function encodeAck() {
+export function encodeAck(): Buffer {
   return Buffer.from([MESSAGE_TYPE.DATA_CHANNEL_ACK]);
 }
 
 /** Return the message type of a DCEP buffer. */
-function messageType(buf) {
+export function messageType(buf: Buffer): number {
   return buf.length > 0 ? buf.readUInt8(0) : -1;
 }
-
-module.exports = { MESSAGE_TYPE, CHANNEL_TYPE, encodeOpen, decodeOpen, encodeAck, messageType };

@@ -1,12 +1,12 @@
 /**
- * @fileoverview RTCError - WebRTC-specific error types.
+ * @file RTCError - WebRTC-specific error types.
  *
  * Implements the W3C RTCError interface
  * (https://www.w3.org/TR/webrtc/#rtcerror-interface).
  *
  * Provides WebRTC-specific error types extending the standard Error class
  * with additional error detail types and metadata fields.
- * 
+ *
  * @license MIT
  * @author nmhung1210
  */
@@ -16,7 +16,7 @@
 /**
  * RTCErrorDetailType enum - Standardized WebRTC error details.
  * Maps to RTCErrorDetailType from the WebRTC spec.
- * 
+ *
  * @readonly
  * @enum {string}
  */
@@ -32,18 +32,73 @@ const RTCErrorDetailType = Object.freeze({
   INVALID_STATE: 'invalid-state',
   INVALID_MODIFICATION: 'invalid-modification',
   INVALID_ACCESS_ERROR: 'invalid-access-error',
-  OPERATION_ERROR: 'operation-error'
-});
+  OPERATION_ERROR: 'operation-error',
+} as const);
+
+/**
+ * Error detail type string union.
+ */
+type RTCErrorDetail = typeof RTCErrorDetailType[keyof typeof RTCErrorDetailType];
+
+/**
+ * Error initialization dictionary.
+ */
+interface RTCErrorInit {
+  errorDetail?: string;
+  sdpLineNumber?: number | null;
+  httpRequestStatusCode?: number | null;
+  sctpCauseCode?: number | null;
+  receivedAlert?: number | null;
+  sentAlert?: number | null;
+}
+
+/**
+ * Native WebRTC error object shape.
+ */
+interface NativeRTCError {
+  error_detail?: string;
+  sctp_cause_code?: number;
+  message?: string;
+}
+
+/**
+ * JSON representation of an RTCError.
+ */
+interface RTCErrorJSON {
+  name: string;
+  message: string;
+  errorDetail: string;
+  sdpLineNumber?: number;
+  httpRequestStatusCode?: number;
+  sctpCauseCode?: number;
+  receivedAlert?: number;
+  sentAlert?: number;
+}
 
 /**
  * RTCError extends Error with WebRTC-specific error details.
- * 
+ *
  * @extends Error
  */
 class RTCError extends Error {
+  /** Export error detail types as static property */
+  static readonly DetailType = RTCErrorDetailType;
+
+  /**
+   * Specific error category.
+   * @private {string}
+   */
+  private readonly _errorDetail: string;
+
+  private readonly _sdpLineNumber: number | null;
+  private readonly _httpRequestStatusCode: number | null;
+  private readonly _sctpCauseCode: number | null;
+  private readonly _receivedAlert: number | null;
+  private readonly _sentAlert: number | null;
+
   /**
    * Creates a new RTCError.
-   * 
+   *
    * @param {RTCErrorInit} [init={}] - Error initialization dictionary
    * @param {string} [init.errorDetail='none'] - Error detail type
    * @param {number} [init.sdpLineNumber] - SDP line number where error occurred
@@ -53,11 +108,11 @@ class RTCError extends Error {
    * @param {number} [init.sentAlert] - TLS alert sent
    * @param {string} [message=''] - Error message
    */
-  constructor(init = {}, message = '') {
+  constructor(init: RTCErrorInit = {}, message = '') {
     super(message);
-    
+
     this.name = 'RTCError';
-    
+
     // Maintain stack trace in V8
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, RTCError);
@@ -68,11 +123,7 @@ class RTCError extends Error {
     if (typeof errorDetail !== 'string') {
       throw new TypeError('errorDetail must be a string');
     }
-    
-    /**
-     * Specific error category.
-     * @private {string}
-     */
+
     this._errorDetail = errorDetail;
 
     // Optional numeric fields with validation
@@ -91,7 +142,7 @@ class RTCError extends Error {
    * @returns {number|null}
    * @throws {TypeError} If value is not an integer
    */
-  _validateInteger(value, fieldName) {
+  private _validateInteger(value: number | null | undefined, fieldName: string): number | null {
     if (value === undefined || value === null) {
       return null;
     }
@@ -110,7 +161,7 @@ class RTCError extends Error {
    * @returns {number|null}
    * @throws {TypeError} If value is not an unsigned integer
    */
-  _validateUnsignedInteger(value, fieldName) {
+  private _validateUnsignedInteger(value: number | null | undefined, fieldName: string): number | null {
     if (value === undefined || value === null) {
       return null;
     }
@@ -125,7 +176,7 @@ class RTCError extends Error {
    * RTCErrorDetailType - specific error category.
    * @type {string}
    */
-  get errorDetail() {
+  get errorDetail(): string {
     return this._errorDetail;
   }
 
@@ -133,7 +184,7 @@ class RTCError extends Error {
    * SDP line number where the error occurred (if applicable).
    * @type {number|null}
    */
-  get sdpLineNumber() {
+  get sdpLineNumber(): number | null {
     return this._sdpLineNumber;
   }
 
@@ -141,7 +192,7 @@ class RTCError extends Error {
    * HTTP request status code (if applicable).
    * @type {number|null}
    */
-  get httpRequestStatusCode() {
+  get httpRequestStatusCode(): number | null {
     return this._httpRequestStatusCode;
   }
 
@@ -149,7 +200,7 @@ class RTCError extends Error {
    * SCTP cause code (if applicable).
    * @type {number|null}
    */
-  get sctpCauseCode() {
+  get sctpCauseCode(): number | null {
     return this._sctpCauseCode;
   }
 
@@ -157,7 +208,7 @@ class RTCError extends Error {
    * TLS alert value received (if applicable).
    * @type {number|null}
    */
-  get receivedAlert() {
+  get receivedAlert(): number | null {
     return this._receivedAlert;
   }
 
@@ -165,7 +216,7 @@ class RTCError extends Error {
    * TLS alert value sent (if applicable).
    * @type {number|null}
    */
-  get sentAlert() {
+  get sentAlert(): number | null {
     return this._sentAlert;
   }
 
@@ -173,11 +224,11 @@ class RTCError extends Error {
    * Converts error to JSON representation.
    * @returns {Object} JSON representation of the error
    */
-  toJSON() {
-    const json = {
+  toJSON(): RTCErrorJSON {
+    const json: RTCErrorJSON = {
       name: this.name,
       message: this.message,
-      errorDetail: this._errorDetail
+      errorDetail: this._errorDetail,
     };
 
     if (this._sdpLineNumber !== null) {
@@ -207,9 +258,9 @@ class RTCError extends Error {
    * @param {string} [nativeError.message] - Error message
    * @returns {RTCError}
    */
-  static fromNative(nativeError) {
-    const init = {
-      errorDetail: nativeError.error_detail || RTCErrorDetailType.NONE
+  static fromNative(nativeError: NativeRTCError): RTCError {
+    const init: RTCErrorInit = {
+      errorDetail: nativeError.error_detail || RTCErrorDetailType.NONE,
     };
 
     if (nativeError.sctp_cause_code !== undefined) {
@@ -220,7 +271,6 @@ class RTCError extends Error {
   }
 }
 
-// Export error detail types as static property
-RTCError.DetailType = RTCErrorDetailType;
-
-module.exports = RTCError;
+export default RTCError;
+export { RTCError, RTCErrorDetailType };
+export type { RTCErrorInit, RTCErrorDetail, NativeRTCError, RTCErrorJSON };
