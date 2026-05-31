@@ -489,7 +489,11 @@ MIT
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests.
+Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) for
+the development workflow and conventions, and our
+[Code of Conduct](./CODE_OF_CONDUCT.md). Security issues should be reported
+privately — see [SECURITY.md](./SECURITY.md). Release notes live in
+[CHANGELOG.md](./CHANGELOG.md).
 
 ## Acknowledgments
 
