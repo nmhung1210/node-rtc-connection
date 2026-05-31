@@ -90,15 +90,14 @@ TypeScript types (keep in sync manually).
   identically over either. `configuration.iceServers` is threaded
   RTCPeerConnection → `TransportStack.gather()` → `IceAgent.gather()`.
 
-### Legacy modules
+### History
 
-`src/ice/RTCIceTransport.js` is the **old** ICE transport the real data path no
-longer uses; `RTCIceTransport._parseServerUrl` backs the `url-parsing`/
-`turn-support` tests. `src/stun/stun-client.js` is **shared**: it is the STUN/
-TURN client used both by the legacy transport and by the live `IceAgent`'s
-`RelayTransport`. Don't route data-channel work through `RTCIceTransport` — use
-the `src/ice/ice-agent` + `TransportStack` path. (The old plain-TCP/JSON
-`src/network/network-transport.js` data path has been deleted.)
+Earlier versions shipped fake `RTCIceTransport`/`RTCDtlsTransport`/
+`RTCSctpTransport` state machines and a plain-TCP/JSON `network-transport.js`
+data path. All have been deleted — the entire data path is now the real
+`TransportStack` (ICE → DTLS → SCTP → DCEP). `src/stun/stun-client.js` is the
+one survivor of that era and is **live**: the `IceAgent`'s `RelayTransport` uses
+it for TURN ALLOCATE/permission/send.
 
 ### Role negotiation
 
@@ -142,8 +141,8 @@ scoped to `src/`). Baseline is ~91% lines / ~81% branches / ~90% functions;
 `.c8rc.json` sets regression thresholds a few points below, enforced by
 `test:coverage:check` (the CI `coverage` job). For accurate numbers run with
 coturn + Chromium available — `SKIP_INTEGRATION=1` undercounts the relay/browser
-paths. Lowest-covered modules are the legacy off-data-path classes
-(`RTCIceTransport.js`, `stun-client.js` server branches).
+paths. Lowest-covered module is `stun-client.js` (its server-only branches are
+not exercised by the client-side relay path).
 
 ## Conventions
 

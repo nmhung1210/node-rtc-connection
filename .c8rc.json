@@ -12,9 +12,9 @@
   "reporter": ["text", "text-summary", "lcov"],
   "report-dir": "coverage",
   "clean": true,
-  "//thresholds": "Regression guard, a few points below actuals (lines ~91, branches ~81, funcs ~90). Enforced only with --check-coverage (CI), since a full run needs coturn + Chromium.",
-  "lines": 88,
-  "branches": 77,
-  "functions": 85
+  "//thresholds": "Regression guard, a couple points below actuals (lines ~94, branches ~81, funcs ~91). Enforced only with --check-coverage (CI), since a full run needs coturn + Chromium.",
+  "lines": 91,
+  "branches": 78,
+  "functions": 88
 }
 
