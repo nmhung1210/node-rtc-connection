@@ -33,7 +33,11 @@ const ICE_SERVERS = [{ urls: `turn:${TURN_HOST}:${TURN_PORT}`, username: TURN_US
 function loadPlaywright() {
   try {
     const { chromium } = require('playwright');
-    chromium.executablePath(); // throws if the browser binary isn't installed
+    // executablePath() returns the EXPECTED path even when the browser binary
+    // hasn't been downloaded (`npx playwright install`), so we must check the
+    // file actually exists — otherwise launch() crashes instead of skipping.
+    const exe = chromium.executablePath();
+    if (!exe || !require('fs').existsSync(exe)) return null;
     return chromium;
   } catch (_) {
     return null;
@@ -103,11 +107,17 @@ function assertAllEchoed(results: any[]) {
 }
 
 describe('Browser interop (Playwright + Chromium)', { skip: SKIP || !chromium }, () => {
-  let browser: any;
+  let browser: any = null;
+  let launchError: Error | null = null;
   let relayOk = false;
 
   before(async () => {
-    browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    try {
+      browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    } catch (e) {
+      // e.g. the browser binary isn't installed — skip rather than fail.
+      launchError = e as Error;
+    }
     relayOk = await turnReachable() as boolean;
   });
 
@@ -115,7 +125,8 @@ describe('Browser interop (Playwright + Chromium)', { skip: SKIP || !chromium },
     if (browser) await browser.close();
   });
 
-  it('transfers data correctly over a direct connection (no TURN, with DTLS)', async () => {
+  it('transfers data correctly over a direct connection (no TURN, with DTLS)', async (t) => {
+    if (!browser) return t.skip(`Chromium unavailable: ${launchError?.message ?? 'not launched'}`);
     const results = await runScenario(browser, {
       nodeConfig: { iceServers: [] },
       browserConfig: { iceServers: [] },
@@ -124,6 +135,7 @@ describe('Browser interop (Playwright + Chromium)', { skip: SKIP || !chromium },
   });
 
   it('transfers data correctly over a TURN relay (with DTLS)', async (t) => {
+    if (!browser) return t.skip(`Chromium unavailable: ${launchError?.message ?? 'not launched'}`);
     if (!relayOk) return t.skip('no TURN server reachable');
     const results = await runScenario(browser, {
       nodeConfig: { iceServers: ICE_SERVERS, iceTransportPolicy: 'relay' },

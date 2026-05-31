@@ -46,8 +46,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Install Playwright Chromium (for browser interop test)
+        run: npx playwright install --with-deps chromium
+
       # The TURN relay test uses the coturn service above; the browser interop
-      # test self-skips (Playwright's Chromium is not installed here).
+      # test runs against the Chromium installed in the previous step.
       - name: Run tests
         run: npm test
         env:
