@@ -163,11 +163,11 @@ describe('RTCDataChannel', () => {
         assert.strictEqual(channel.readyState, 'open');
         done();
       });
-      channel._setStateToOpen();
+      RTCDataChannel.control(channel).open();
     });
 
     it('should transition to closing state', (t, done) => {
-      channel._setStateToOpen();
+      RTCDataChannel.control(channel).open();
       channel.on('closing', () => {
         assert.strictEqual(channel.readyState, 'closing');
         done();
@@ -176,7 +176,7 @@ describe('RTCDataChannel', () => {
     });
 
     it('should transition to closed state', (t, done) => {
-      channel._setStateToOpen();
+      RTCDataChannel.control(channel).open();
       channel.on('close', () => {
         assert.strictEqual(channel.readyState, 'closed');
         done();
@@ -187,13 +187,13 @@ describe('RTCDataChannel', () => {
     it('should not emit events if state does not change', () => {
       let eventCount = 0;
       channel.on('open', () => eventCount++);
-      channel._setStateToOpen();
-      channel._setStateToOpen();
+      RTCDataChannel.control(channel).open();
+      RTCDataChannel.control(channel).open();
       assert.strictEqual(eventCount, 1);
     });
 
     it('should ignore close() if already closing', () => {
-      channel._setStateToOpen();
+      RTCDataChannel.control(channel).open();
       channel.close();
       assert.strictEqual(channel.readyState, 'closing');
       channel.close();
@@ -201,7 +201,7 @@ describe('RTCDataChannel', () => {
     });
 
     it('should ignore close() if already closed', (t, done) => {
-      channel._setStateToOpen();
+      RTCDataChannel.control(channel).open();
       channel.on('close', () => {
         channel.close();
         assert.strictEqual(channel.readyState, 'closed');
@@ -324,7 +324,7 @@ describe('RTCDataChannel', () => {
 
     beforeEach(() => {
       channel = new RTCDataChannel('test');
-      channel._setStateToOpen();
+      RTCDataChannel.control(channel).open();
     });
 
     it('should emit a string message for non-binary frames', (t, done) => {
@@ -332,7 +332,7 @@ describe('RTCDataChannel', () => {
         assert.strictEqual(event.data, 'Hello');
         done();
       });
-      channel._receiveMessage(Buffer.from('Hello', 'utf8'), false);
+      RTCDataChannel.control(channel).receiveMessage(Buffer.from('Hello', 'utf8'), false);
     });
 
     it('should emit binary frames as ArrayBuffer by default', (t, done) => {
@@ -342,7 +342,7 @@ describe('RTCDataChannel', () => {
         assert.deepStrictEqual(new Uint8Array(event.data), new Uint8Array([1, 2, 3]));
         done();
       });
-      channel._receiveMessage(buffer, true);
+      RTCDataChannel.control(channel).receiveMessage(buffer, true);
     });
   });
 
@@ -350,7 +350,7 @@ describe('RTCDataChannel', () => {
     it('should allow setting channel ID', () => {
       const channel = new RTCDataChannel('test');
       assert.strictEqual(channel.id, null);
-      channel._setId(123);
+      RTCDataChannel.control(channel).setId(123);
       assert.strictEqual(channel.id, 123);
     });
   });

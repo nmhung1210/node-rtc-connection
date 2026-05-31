@@ -13,8 +13,8 @@ describe('Data Channel sender contract', () => {
   it('invokes the sender with (Buffer, isBinary=false) for strings', () => {
     const channel = new RTCDataChannel('test');
     let captured: any = null;
-    channel._setSender((data: any, isBinary: any) => { captured = { data, isBinary }; });
-    channel._setStateToOpen();
+    RTCDataChannel.control(channel).setSender((data: any, isBinary: any) => { captured = { data, isBinary }; });
+    RTCDataChannel.control(channel).open();
 
     channel.send('hello');
     assert.ok(Buffer.isBuffer(captured.data));
@@ -25,8 +25,8 @@ describe('Data Channel sender contract', () => {
   it('invokes the sender with isBinary=true for ArrayBuffer/typed arrays', () => {
     const channel = new RTCDataChannel('test');
     let captured: any = null;
-    channel._setSender((data: any, isBinary: any) => { captured = { data, isBinary }; });
-    channel._setStateToOpen();
+    RTCDataChannel.control(channel).setSender((data: any, isBinary: any) => { captured = { data, isBinary }; });
+    RTCDataChannel.control(channel).open();
 
     channel.send(Uint8Array.from([1, 2, 3]).buffer);
     assert.ok(Buffer.isBuffer(captured.data));
@@ -36,20 +36,20 @@ describe('Data Channel sender contract', () => {
 
   it('throws if send() is called before a sender is attached', () => {
     const channel = new RTCDataChannel('test');
-    channel._setStateToOpen();
+    RTCDataChannel.control(channel).open();
     assert.throws(() => channel.send('x'), /not connected to a transport/);
   });
 
   it('throws if send() is called while not open', () => {
     const channel = new RTCDataChannel('test');
-    channel._setSender(() => {});
+    RTCDataChannel.control(channel).setSender(() => {});
     assert.throws(() => channel.send('x'), /readyState is not "open"/);
   });
 
   it('decrements bufferedAmount after the sender accepts the data', () => {
     const channel = new RTCDataChannel('test');
-    channel._setSender(() => {});
-    channel._setStateToOpen();
+    RTCDataChannel.control(channel).setSender(() => {});
+    RTCDataChannel.control(channel).open();
     channel.send('abcde');
     assert.strictEqual(channel.bufferedAmount, 0);
   });
