@@ -375,20 +375,28 @@ createPeerConnection().catch(console.error);
 
 ## Example Files
 
-The package includes several example files demonstrating different features:
+The package includes runnable examples in `examples/`:
 
-- **`examples/real-networking-demo.js`** - Basic peer-to-peer connection without STUN/TURN
-- **`examples/stun-demo.js`** - STUN server usage for NAT traversal
-- **`examples/turn-demo.js`** - TURN relay with full peer-to-peer communication
-- **`examples/peer-connection-demo.js`** - Simple peer connection setup
-- **`examples/simple-datachannel.js`** - Basic data channel usage
+- **`examples/node-to-node.js`** — Two NodeRTC peers in one process establish a
+  real data channel and exchange string + binary messages. The quickest way to
+  see the full ICE/DTLS/SCTP stack work.
+- **`examples/browser-server.js`** + **`examples/browser-client.html`** — A
+  Node.js HTTP server that runs a NodeRTC peer (the offerer) and serves a chat
+  page. A browser opens the page, runs its native `RTCPeerConnection` as the
+  answerer, and the two establish a genuine WebRTC data channel over UDP.
 
-Run examples:
+Run them:
 ```bash
-node examples/real-networking-demo.js
-node examples/stun-demo.js
-node examples/turn-demo.js
+# Node ↔ Node
+npm run example:node      # or: node examples/node-to-node.js
+
+# Node ↔ Browser — then open http://localhost:3000
+npm run example:browser   # or: node examples/browser-server.js
 ```
+
+> The browser example uses plain HTTP for signaling and folds ICE candidates
+> into the SDP (non-trickle) to keep it simple. A production app would typically
+> use WebSockets with trickle ICE.
 
 ## Configuration File
 
