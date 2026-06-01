@@ -1,0 +1,30 @@
+# coturn with a DTLS listener for the TURN-over-DTLS (turns:) e2e test.
+#
+# coturn never auto-generates a certificate: with a TLS/DTLS listening port set
+# but no --cert/--pkey it logs "cannot start TLS and DTLS listeners because
+# private key file is not set properly" and opens no DTLS listener. GitHub
+# Actions service containers also can't be fed a runtime-generated cert (they
+# start before any step and have no shared/ordered volumes). So we bake an
+# ECDSA P-256 self-signed cert into the image at build time.
+#
+# ECDSA (not RSA) is required because our DTLS stack offers exactly one cipher
+# suite, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256; OpenSSL only negotiates it
+# when coturn is configured with an EC certificate.
+FROM coturn/coturn:latest
+
+USER root
+
+# Generate the ECDSA P-256 key + self-signed cert at coturn's default paths.
+RUN openssl ecparam -name prime256v1 -genkey -noout \
+        -out /etc/coturn/turn_server_pkey.pem \
+ && openssl req -new -x509 -days 3650 \
+        -key /etc/coturn/turn_server_pkey.pem \
+        -out /etc/coturn/turn_server_cert.pem \
+        -subj "/CN=nodertc.local" \
+ && chmod 0644 /etc/coturn/turn_server_pkey.pem /etc/coturn/turn_server_cert.pem
+
+# Flags are supplied by the caller (CI services: options / test docker run):
+#   --tls-listening-port=5349 --lt-cred-mech --user=... --realm=nodertc.local
+#   --no-tls --cert=/etc/coturn/turn_server_cert.pem
+#   --pkey=/etc/coturn/turn_server_pkey.pem
+ENTRYPOINT ["turnserver"]
