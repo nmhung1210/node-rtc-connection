@@ -48,6 +48,20 @@ describe('parseIceServerUrl', () => {
     assert.strictEqual(parseIceServerUrl('turns:turn.example.com')!.port, 5349);
   });
 
+  it('parses a TURNS URL (DTLS over UDP by default)', () => {
+    const r = parseIceServerUrl('turns:turn.example.com:5349')!;
+    assert.strictEqual(r.scheme, 'turns');
+    assert.strictEqual(r.port, 5349);
+    assert.strictEqual(r.transport, 'udp');
+  });
+
+  it('parses a TURNS URL with transport=tcp (TLS over TCP)', () => {
+    const r = parseIceServerUrl('turns:turn.example.com:5349?transport=tcp')!;
+    assert.strictEqual(r.scheme, 'turns');
+    assert.strictEqual(r.port, 5349);
+    assert.strictEqual(r.transport, 'tcp');
+  });
+
   it('defaults to UDP transport when not specified', () => {
     assert.strictEqual(parseIceServerUrl('turn:turn.example.com:3478')!.transport, 'udp');
   });

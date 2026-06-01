@@ -96,6 +96,57 @@ describe('DTLS interop with OpenSSL', { skip: SKIP || !hasOpenSSLDtls() }, () =>
     }
   });
 
+  it('Node client completes handshake with openssl s_server that does not request a client cert', async () => {
+    // No -Verify / -verify: the server sends no CertificateRequest, so the
+    // client must omit its Certificate + CertificateVerify (the path taken with
+    // TURN-over-DTLS servers like coturn). Exercises DtlsConnection's
+    // #certRequested=false branch against real OpenSSL.
+    const PORT = 45700 + Math.floor(Math.random() * 200);
+    const srv = x509.generateSelfSigned({ commonName: 'ossl-server-noverify' });
+    const { keyPath, certPath } = writePem(tmpDir, 'srv-nv', srv);
+
+    const ossl = spawn(
+      'openssl',
+      [
+        's_server', '-dtls1_2',
+        '-cipher', 'ECDHE-ECDSA-AES128-GCM-SHA256',
+        '-cert', certPath, '-key', keyPath,
+        '-accept', String(PORT), '-quiet',
+      ],
+      { stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+
+    try {
+      const result = await new Promise<string>((resolve, reject) => {
+        const clientCert = x509.generateSelfSigned({ commonName: 'node-client' });
+        const timer = setTimeout(() => reject(new Error('handshake timeout')), 8000);
+
+        setTimeout(() => {
+          const sock = dgram.createSocket('udp4');
+          const conn = new DtlsConnection({
+            role: ROLE.CLIENT,
+            certDer: clientCert.certDer,
+            privateKey: clientCert.privateKey,
+            output: (dg: Buffer) => sock.send(dg, PORT, '127.0.0.1'),
+          });
+          sock.on('message', (m) => conn.handlePacket(m));
+          conn.on('connect', () => conn.send(Buffer.from('ping-from-node\n')));
+          conn.on('data', (d: Buffer) => {
+            clearTimeout(timer);
+            sock.close();
+            resolve(d.toString());
+          });
+          conn.on('error', (e: any) => { clearTimeout(timer); reject(e); });
+          conn.start();
+          setTimeout(() => { try { ossl.stdin.write('pong-from-openssl\n'); } catch (_) {} }, 1000);
+        }, 500);
+      });
+      assert.match(result, /pong-from-openssl/);
+    } finally {
+      ossl.kill();
+    }
+  });
+
   it('Node server completes mutual-auth handshake with openssl s_client', async () => {
     const PORT = 45400 + Math.floor(Math.random() * 200);
     const srvCert = x509.generateSelfSigned({ commonName: 'node-server' });
