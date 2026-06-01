@@ -134,6 +134,11 @@ class DtlsConnection extends EventEmitter {
   #cookieSecret?: Buffer;
   #renegRequested?: boolean;
 
+  // Client role: true once the server sent a CertificateRequest. WebRTC peers
+  // always do (mutual auth); a TURN-over-DTLS server (coturn) does not, so we
+  // must then omit our Certificate / CertificateVerify per TLS.
+  #certRequested: boolean;
+
   /**
    * @param opts connection options
    */
@@ -182,6 +187,7 @@ class DtlsConnection extends EventEmitter {
     this.#retransmitCount = 0;
 
     this.#handshakeDone = false;
+    this.#certRequested = false;
   }
 
   /** Begin the handshake (client sends the first flight). */
@@ -513,8 +519,11 @@ class DtlsConnection extends EventEmitter {
         this.#parseServerKeyExchange(body);
         break;
       case P.HANDSHAKE_TYPE.CERTIFICATE_REQUEST:
-        // We always send our certificate (WebRTC is mutual-auth), so the
-        // request only needs to be folded into the transcript.
+        // The server wants us to authenticate (WebRTC is mutual-auth). Record
+        // that so the second flight includes our Certificate/CertificateVerify;
+        // a server that omits this (e.g. coturn over DTLS) leaves the flag false
+        // and we skip them. Either way fold the message into the transcript.
+        this.#certRequested = true;
         this.#appendInboundTranscript(type, body);
         break;
       case P.HANDSHAKE_TYPE.SERVER_HELLO_DONE:
@@ -572,24 +581,33 @@ class DtlsConnection extends EventEmitter {
     // Compute pre-master secret = ECDH(serverPub).
     const pms = this.#ecdh.computeSecret(this.#remoteEcdhePub!);
 
-    // client Certificate
-    const certMsg = this.#buildCertificateMessage();
-    // ClientKeyExchange: ECPoint as vec8
+    // ClientKeyExchange: ECPoint as vec8.
     const cke = P.vec8(clientPub);
 
+    // Whether we authenticate to the peer. WebRTC servers always send a
+    // CertificateRequest; a TURN-over-DTLS server (coturn) does not, in which
+    // case we send neither Certificate nor CertificateVerify.
+    const sendCert = this.#certRequested;
+
     // Build the messages we're about to send so the transcript is correct for
-    // CertificateVerify (which signs everything through ClientKeyExchange) and
-    // for the master secret (EMS hashes through ClientKeyExchange).
-    const certSeq = this.#handshakeMessageSeq;
-    const ckeSeq = certSeq + 1;
-    const certFull = P.encodeHandshake(P.HANDSHAKE_TYPE.CERTIFICATE, certSeq, certMsg);
+    // the master secret (EMS hashes through ClientKeyExchange) and, when we
+    // authenticate, for CertificateVerify (which signs through ClientKeyExchange).
+    // Certificate, when present, precedes ClientKeyExchange in the message_seq.
+    let certMsg: Buffer | null = null;
+    let certFull: Buffer = Buffer.alloc(0);
+    const ckeSeq = sendCert ? this.#handshakeMessageSeq + 1 : this.#handshakeMessageSeq;
+    if (sendCert) {
+      certMsg = this.#buildCertificateMessage();
+      certFull = P.encodeHandshake(P.HANDSHAKE_TYPE.CERTIFICATE, this.#handshakeMessageSeq, certMsg);
+    }
     const ckeFull = P.encodeHandshake(P.HANDSHAKE_TYPE.CLIENT_KEY_EXCHANGE, ckeSeq, cke);
 
-    // Master secret derivation.
+    // Master secret derivation. The EMS session hash covers the transcript
+    // through ClientKeyExchange (including our Certificate when we send one).
     if (this.#useExtendedMasterSecret) {
       const h = crypto.createHash('sha256');
       for (const m of this.#transcript) h.update(m);
-      h.update(certFull);
+      if (sendCert) h.update(certFull);
       h.update(ckeFull);
       const sessionHash = h.digest();
       this.#masterSecret = cipher.deriveExtendedMasterSecret(pms, sessionHash);
@@ -598,24 +616,24 @@ class DtlsConnection extends EventEmitter {
     }
     this.#deriveCipherKeys();
 
-    // CertificateVerify: sign the raw handshake transcript through
-    // ClientKeyExchange. crypto.sign applies SHA-256 itself, so we feed it the
-    // concatenated messages, not a pre-computed digest.
-    const cvData = Buffer.concat([...this.#transcript, certFull, ckeFull]);
-    const cvSig = crypto.sign('sha256', cvData, { key: this.#privateKey, dsaEncoding: 'der' });
-    const cvBody = Buffer.concat([
-      Buffer.from([P.HASH_ALG.sha256, P.SIG_ALG.ecdsa]),
-      P.vec16(cvSig),
-    ]);
-
-    // Now actually send: Certificate, ClientKeyExchange, CertificateVerify
-    // as a flight (these get recorded in transcript by _sendFlight), then CCS,
-    // then Finished.
-    this.#sendFlight([
-      { type: P.HANDSHAKE_TYPE.CERTIFICATE, body: certMsg },
-      { type: P.HANDSHAKE_TYPE.CLIENT_KEY_EXCHANGE, body: cke },
-      { type: P.HANDSHAKE_TYPE.CERTIFICATE_VERIFY, body: cvBody },
-    ]);
+    // Flight: Certificate (if requested), ClientKeyExchange, CertificateVerify
+    // (if requested). _sendFlight records each into the transcript.
+    const flight: HandshakeMessage[] = [];
+    if (sendCert) flight.push({ type: P.HANDSHAKE_TYPE.CERTIFICATE, body: certMsg! });
+    flight.push({ type: P.HANDSHAKE_TYPE.CLIENT_KEY_EXCHANGE, body: cke });
+    if (sendCert) {
+      // CertificateVerify: sign the raw handshake transcript through
+      // ClientKeyExchange. crypto.sign applies SHA-256 itself, so we feed it the
+      // concatenated messages, not a pre-computed digest.
+      const cvData = Buffer.concat([...this.#transcript, certFull, ckeFull]);
+      const cvSig = crypto.sign('sha256', cvData, { key: this.#privateKey, dsaEncoding: 'der' });
+      const cvBody = Buffer.concat([
+        Buffer.from([P.HASH_ALG.sha256, P.SIG_ALG.ecdsa]),
+        P.vec16(cvSig),
+      ]);
+      flight.push({ type: P.HANDSHAKE_TYPE.CERTIFICATE_VERIFY, body: cvBody });
+    }
+    this.#sendFlight(flight);
 
     this.#sendChangeCipherSpec();
     this.#sendFinished(P.FINISHED_LABEL.CLIENT);

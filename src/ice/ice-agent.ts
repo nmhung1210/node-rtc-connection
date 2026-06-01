@@ -294,7 +294,11 @@ class IceAgent extends EventEmitter {
       const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
       for (const url of urls) {
         const parsed = parseIceServerUrl(url);
-        if (!parsed || parsed.transport !== 'udp') continue; // UDP only for now
+        if (!parsed) continue;
+        // TURN-over-TLS (turns:) may relay over a TCP transport; every other
+        // path (host srflx, plain turn:) is UDP only.
+        const tcpRelay = parsed.scheme === 'turns' && parsed.transport === 'tcp';
+        if (parsed.transport !== 'udp' && !tcpRelay) continue;
         try {
           if (parsed.scheme === 'stun' && !relayOnly) {
             await this.#gatherSrflx(parsed, hostEntries[0]);
@@ -376,6 +380,8 @@ class IceAgent extends EventEmitter {
       username: server.username,
       credential: server.credential,
       transport: parsed.transport,
+      // turns: is encrypted — DTLS over UDP, or TLS over TCP (?transport=tcp).
+      secure: parsed.scheme === 'turns',
     });
     const alloc = await turn.allocateRelay(600) as { relayedAddress: string; relayedPort: number };
     const transport = new RelayTransport(turn);

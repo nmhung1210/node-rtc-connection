@@ -10,9 +10,13 @@
 'use strict';
 
 import * as dgram from 'dgram';
+import * as tls from 'tls';
 import * as crypto from 'crypto';
 
 import { EventEmitter } from 'events';
+
+import { DtlsConnection, ROLE } from '../dtls/connection';
+import * as x509 from '../crypto/x509';
 
 /**
  * STUN message types
@@ -81,6 +85,8 @@ interface STUNClientOptions {
   credential?: string;
   /** Transport protocol (udp/tcp) */
   transport?: string;
+  /** Wrap the link to the server in DTLS (TURN-over-DTLS, the `turns:` scheme) */
+  secure?: boolean;
   /** Additional query parameters from URL */
   params?: Record<string, unknown>;
 }
@@ -186,6 +192,11 @@ class STUNClient extends EventEmitter {
   #transactions: Map<string, Transaction>;
   #realm: string | null;
   #nonce: string | null;
+  #secure: boolean;
+  #transport: string;
+  #dtls: DtlsConnection | null;
+  #tls: tls.TLSSocket | null;
+  #streamBuffer: Buffer;
 
   /**
    * Create a STUN client
@@ -208,6 +219,11 @@ class STUNClient extends EventEmitter {
     this.#transactions = new Map();
     this.#realm = null;
     this.#nonce = null;
+    this.#secure = options.secure === true;
+    this.#transport = (options.transport || 'udp').toLowerCase();
+    this.#dtls = null;
+    this.#tls = null;
+    this.#streamBuffer = Buffer.alloc(0);
   }
 
   /**
@@ -215,26 +231,127 @@ class STUNClient extends EventEmitter {
    * @returns {Promise<void>}
    */
   async connect(): Promise<void> {
-    if (this.#socket) {
+    if (this.#socket || this.#tls) {
       return;
+    }
+
+    // TURN-over-TLS: a TLS byte stream over TCP (the turns: scheme with
+    // ?transport=tcp). Node's tls module handles the handshake; we only need to
+    // re-frame the inbound stream into discrete STUN messages on read.
+    if (this.#secure && this.#transport === 'tcp') {
+      return this.#connectTls();
     }
 
     return new Promise<void>((resolve, reject) => {
       const socket = dgram.createSocket('udp4');
       this.#socket = socket;
 
-      socket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-        this.#handleMessage(msg, rinfo);
-      });
-
       socket.on('error', (err: Error) => {
         console.error('STUN socket error:', err);
         reject(err);
       });
 
-      socket.bind(() => {
-        resolve();
+      if (this.#secure) {
+        // TURN-over-DTLS: wrap the link to the server in a DTLS 1.2 session.
+        // Inbound datagrams are DTLS records → decrypted application data is the
+        // STUN/TURN message stream. The server does not request a client cert,
+        // so we only need an ephemeral cert to satisfy the handshake.
+        const cert = x509.generateSelfSigned({ commonName: 'nodertc-turn-client' });
+        const dtls = new DtlsConnection({
+          role: ROLE.CLIENT,
+          certDer: cert.certDer,
+          privateKey: cert.privateKey,
+          verifyFingerprint: () => true, // no SDP fingerprint to pin for a TURN server
+          output: (datagram: Buffer) => {
+            socket.send(datagram, this.#port, this.#server, () => {});
+          },
+        });
+        this.#dtls = dtls;
+
+        socket.on('message', (msg: Buffer) => dtls.handlePacket(msg));
+        dtls.on('data', (data: Buffer) => this.#handleMessage(data, this.#fakeRinfo()));
+        dtls.on('connect', () => resolve());
+        dtls.on('error', (err: Error) => reject(err));
+
+        socket.bind(() => dtls.start());
+      } else {
+        socket.on('message', (msg: Buffer, rinfo: dgram.RemoteInfo) => {
+          this.#handleMessage(msg, rinfo);
+        });
+        socket.bind(() => resolve());
+      }
+    });
+  }
+
+  /**
+   * Open a TLS connection to the TURN server and wire its byte stream into the
+   * STUN message handler. The server does not validate a client certificate,
+   * and it is self-signed, so we disable peer verification (an encrypted
+   * channel to the TURN server is the only goal — relayed payloads carry their
+   * own end-to-end DTLS).
+   * @private
+   */
+  #connectTls(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const socket = tls.connect(
+        { host: this.#server, port: this.#port, rejectUnauthorized: false },
+        () => resolve()
+      );
+      this.#tls = socket;
+      socket.on('data', (chunk: Buffer) => this.#onStreamData(chunk));
+      socket.on('error', (err: Error) => reject(err));
+    });
+  }
+
+  /**
+   * Re-frame a TLS/TCP byte stream into STUN messages. Each STUN message is a
+   * 20-byte header followed by `length` bytes (the big-endian uint16 at offset
+   * 2); we buffer partial reads and dispatch each complete message.
+   * @param chunk - bytes received from the stream
+   * @private
+   */
+  #onStreamData(chunk: Buffer): void {
+    this.#streamBuffer = this.#streamBuffer.length ? Buffer.concat([this.#streamBuffer, chunk]) : chunk;
+    while (this.#streamBuffer.length >= 20) {
+      const messageLength = this.#streamBuffer.readUInt16BE(2);
+      const total = 20 + messageLength;
+      if (this.#streamBuffer.length < total) break; // wait for the rest
+      const message = this.#streamBuffer.subarray(0, total);
+      this.#streamBuffer = this.#streamBuffer.subarray(total);
+      this.#handleMessage(message, this.#fakeRinfo());
+    }
+  }
+
+  /** A placeholder RemoteInfo for DTLS/TLS-delivered messages (rinfo is unused). */
+  #fakeRinfo(): dgram.RemoteInfo {
+    return { address: this.#server, family: 'IPv4', port: this.#port, size: 0 };
+  }
+
+  /**
+   * Send a datagram to the server over whichever transport is active: the DTLS
+   * session when secure, otherwise the bare UDP socket. `onError` is invoked if
+   * the send fails (UDP delivers the error via callback; DTLS via throw).
+   * @param buf - bytes to send
+   * @param onError - called with the error on failure
+   * @private
+   */
+  #sendToServer(buf: Buffer, onError: (err: Error) => void): void {
+    if (this.#tls) {
+      this.#tls.write(buf, (err) => {
+        if (err) onError(err);
       });
+      return;
+    }
+    if (this.#dtls) {
+      try {
+        this.#dtls.send(buf);
+      } catch (err) {
+        onError(err instanceof Error ? err : new Error(String(err)));
+      }
+      return;
+    }
+    this.#socket!.send(buf, this.#port, this.#server, (err) => {
+      if (err) onError(err);
     });
   }
 
@@ -265,12 +382,10 @@ class STUNClient extends EventEmitter {
         },
       });
 
-      this.#socket!.send(request, this.#port, this.#server, (err) => {
-        if (err) {
-          clearTimeout(timeout);
-          this.#transactions.delete(transactionId.toString('hex'));
-          reject(err);
-        }
+      this.#sendToServer(request, (err) => {
+        clearTimeout(timeout);
+        this.#transactions.delete(transactionId.toString('hex'));
+        reject(err);
       });
     });
   }
@@ -375,10 +490,8 @@ class STUNClient extends EventEmitter {
 
     // Indications are fire-and-forget, no response expected
     return new Promise<void>((resolve, reject) => {
-      this.#socket!.send(indication, this.#port, this.#server, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
+      this.#sendToServer(indication, reject);
+      resolve();
     });
   }
 
@@ -409,12 +522,10 @@ class STUNClient extends EventEmitter {
         },
       });
 
-      this.#socket!.send(request, this.#port, this.#server, (err) => {
-        if (err) {
-          clearTimeout(timeout);
-          this.#transactions.delete(transactionId.toString('hex'));
-          reject(err);
-        }
+      this.#sendToServer(request, (err) => {
+        clearTimeout(timeout);
+        this.#transactions.delete(transactionId.toString('hex'));
+        reject(err);
       });
     });
   }
@@ -924,6 +1035,14 @@ class STUNClient extends EventEmitter {
    * Close the client
    */
   close(): void {
+    if (this.#dtls) {
+      try { this.#dtls.close(); } catch (_) {}
+      this.#dtls = null;
+    }
+    if (this.#tls) {
+      try { this.#tls.destroy(); } catch (_) {}
+      this.#tls = null;
+    }
     if (this.#socket) {
       this.#socket.close();
       this.#socket = null;
