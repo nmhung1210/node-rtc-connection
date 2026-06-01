@@ -1,11 +1,26 @@
 /**
  * @file node-to-node.ts
  * @description Two NodeRTC peers in one process establish a real WebRTC data
- * channel (ICE + DTLS + SCTP over UDP) and exchange string and binary messages.
+ * channel (ICE + DTLS + SCTP) through a TURN server and exchange string and
+ * binary messages.
  *
  * This is the simplest way to see the full stack work without a browser. The
  * two peers exchange offer/answer and ICE candidates directly via function
  * calls (standing in for a signaling channel).
+ *
+ * Both peers are configured with a TURN server. Point them at your own server
+ * via env vars; the defaults match the coturn used by the test suite:
+ *
+ *   TURN_URL    turn:127.0.0.1:3478   (use turns:host:5349 for TLS/DTLS)
+ *   TURN_USER   testuser
+ *   TURN_PASS   testpass
+ *   RELAY_ONLY  unset                 (set to 1 to force traffic via the relay)
+ *
+ * Run a local coturn first (or set the env vars to a reachable server):
+ *
+ *   docker run -d -p 3478:3478/udp coturn/coturn -n --listening-port=3478 \
+ *     --lt-cred-mech --user=testuser:testpass --realm=nodertc.local \
+ *     --no-tls --no-dtls --fingerprint
  *
  *   node examples/node-to-node.ts
  */
@@ -15,8 +30,22 @@
 import { RTCPeerConnection } from '../src/index';
 
 async function main() {
-  const offerer = new RTCPeerConnection();
-  const answerer = new RTCPeerConnection();
+  // TURN server configuration (override via env). Both peers gather relay
+  // candidates from this server; with RELAY_ONLY the data path is forced
+  // through the relay (iceTransportPolicy: 'relay').
+  const iceServers = [
+    {
+      urls: process.env.TURN_URL || 'turn:127.0.0.1:3478',
+      username: process.env.TURN_USER || 'testuser',
+      credential: process.env.TURN_PASS || 'testpass',
+    },
+  ];
+  const iceTransportPolicy = process.env.RELAY_ONLY ? 'relay' as const : 'all' as const;
+
+  console.log(`Using TURN server: ${iceServers[0]!.urls} (policy: ${iceTransportPolicy})`);
+
+  const offerer = new RTCPeerConnection({ iceServers, iceTransportPolicy });
+  const answerer = new RTCPeerConnection({ iceServers, iceTransportPolicy });
 
   // Trickle ICE candidates between the peers (here, a direct call).
   offerer.on('icecandidate', (e: any) => { if (e.candidate) answerer.addIceCandidate(e.candidate); });

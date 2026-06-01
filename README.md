@@ -382,8 +382,10 @@ createPeerConnection().catch(console.error);
 The package includes runnable examples in `examples/`:
 
 - **`examples/node-to-node.ts`** — Two node-rtc-connection peers in one process
-  establish a real data channel and exchange string + binary messages. The
-  quickest way to see the full ICE/DTLS/SCTP stack work.
+  establish a real data channel through a TURN server and exchange string +
+  binary messages. The quickest way to see the full ICE/DTLS/SCTP stack work.
+  Configure the server via `TURN_URL`/`TURN_USER`/`TURN_PASS` (defaults match the
+  test-suite coturn), and set `RELAY_ONLY=1` to force traffic through the relay.
 - **`examples/browser-server.ts`** + **`examples/browser-client.html`** — A
   Node.js HTTP server that runs a node-rtc-connection peer (the offerer) and serves a chat
   page. A browser opens the page, runs its native `RTCPeerConnection` as the
