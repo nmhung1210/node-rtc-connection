@@ -747,7 +747,7 @@ class STUNClient extends EventEmitter {
         key = crypto.createHash('md5').update(keyString).digest();
       }
 
-      const hmac = crypto.createHmac('sha1', key);
+      const hmac = crypto.createHmac('sha256', key);
       hmac.update(tempMessage);
       const integrity = hmac.digest();
 
