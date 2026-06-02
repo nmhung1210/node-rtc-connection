@@ -285,16 +285,13 @@ class STUNClient extends EventEmitter {
 
   /**
    * Open a TLS connection to the TURN server and wire its byte stream into the
-   * STUN message handler. The server does not validate a client certificate,
-   * and it is self-signed, so we disable peer verification (an encrypted
-   * channel to the TURN server is the only goal — relayed payloads carry their
-   * own end-to-end DTLS).
+   * STUN message handler using standard TLS certificate validation.
    * @private
    */
   #connectTls(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const socket = tls.connect(
-        { host: this.#server, port: this.#port, rejectUnauthorized: false },
+        { host: this.#server, port: this.#port, rejectUnauthorized: true },
         () => resolve()
       );
       this.#tls = socket;
