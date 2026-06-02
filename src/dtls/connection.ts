@@ -139,6 +139,11 @@ class DtlsConnection extends EventEmitter {
   // must then omit our Certificate / CertificateVerify per TLS.
   #certRequested: boolean;
 
+  // Client role: the encoded first (cookieless) ClientHello. When the server
+  // skips HelloVerifyRequest (browsers do, for data channels), this message is
+  // the one that belongs in the transcript — see #clientHandle SERVER_HELLO.
+  #firstClientHello: Buffer | null = null;
+
   /**
    * @param opts connection options
    */
@@ -433,6 +438,9 @@ class DtlsConnection extends EventEmitter {
       // beyond the cookie exchange.
       const seq = this.#handshakeMessageSeq++; // message_seq 0
       const fragment = P.encodeHandshake(P.HANDSHAKE_TYPE.CLIENT_HELLO, seq, body);
+      // Remember it: if the server skips HelloVerifyRequest (browsers do), this
+      // is the ClientHello that must go into the transcript, with message_seq 0.
+      this.#firstClientHello = fragment;
       this.#lastFlight = [{ type: P.CONTENT_TYPE.HANDSHAKE, payload: fragment }];
       this.#flushFlight();
       this.#armRetransmit();
@@ -507,6 +515,15 @@ class DtlsConnection extends EventEmitter {
         break;
       }
       case P.HANDSHAKE_TYPE.SERVER_HELLO:
+        // If the server skipped HelloVerifyRequest (no cookie exchange — what
+        // browsers do for data-channel DTLS), our first ClientHello was never
+        // recorded. Per RFC 6347 §4.2.1 it belongs in the transcript in that
+        // case, so prepend it now, before ServerHello, or our CertificateVerify
+        // signature and Finished MAC will be computed over the wrong transcript
+        // and the peer rejects them with decrypt_error (alert 51).
+        if (this.#cookie.length === 0 && this.#transcript.length === 0 && this.#firstClientHello) {
+          this.#transcript.push(this.#firstClientHello);
+        }
         this.#appendInboundTranscript(type, body);
         this.#parseServerHello(body);
         break;
