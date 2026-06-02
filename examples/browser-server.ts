@@ -38,6 +38,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
+import { randomUUID } from 'crypto';
 import { RTCPeerConnection } from '../src/index';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -181,7 +182,7 @@ const server = http.createServer(async (req, res) => {
 
     // Browser asks for an offer; we mint a fresh session.
     if (url.pathname === '/offer') {
-      const id = Math.random().toString(36).slice(2, 10);
+      const id = randomUUID();
       const session = await createSession();
       sessions.set(id, session);
       console.log(`[node] created session ${id}`);
