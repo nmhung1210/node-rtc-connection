@@ -79,6 +79,8 @@ interface CandidatePair {
   remote: { address: string; port: number } & Partial<RemoteCandidate>;
   state?: string;
   nominated?: boolean;
+  /** Hex transaction id of this pair's outstanding check, if any. */
+  pendingTxid?: string;
 }
 
 /** Description of a single ICE server entry. */
@@ -476,6 +478,10 @@ class IceAgent extends EventEmitter {
   #stopChecks(): void {
     if (this.#checkTimer) { clearInterval(this.#checkTimer); this.#checkTimer = null; }
     if (this.#timeoutTimer) { clearTimeout(this.#timeoutTimer); this.#timeoutTimer = null; }
+    // Each tick registers a fresh transaction id per in-flight check; entries
+    // are only removed on a matching success, so unanswered checks accumulate.
+    // Drop them all once checks stop.
+    this.#pendingChecks.clear();
   }
 
   #tick(): void {
@@ -501,7 +507,12 @@ class IceAgent extends EventEmitter {
     }
 
     const msg = builder.build(this.remotePwd ?? undefined);
-    this.#pendingChecks.set(txid.toString('hex'), pair);
+    // Retire this pair's previous outstanding check so retransmits don't grow
+    // #pendingChecks without bound (one tick per CHECK_INTERVAL_MS per pair).
+    if (pair.pendingTxid) this.#pendingChecks.delete(pair.pendingTxid);
+    const txidHex = txid.toString('hex');
+    pair.pendingTxid = txidHex;
+    this.#pendingChecks.set(txidHex, pair);
     pair.state = 'in-progress';
     pair.local.transport.send(msg, pair.remote.address, pair.remote.port);
   }
@@ -556,6 +567,7 @@ class IceAgent extends EventEmitter {
     const pair = this.#pendingChecks.get(parsed.transactionId.toString('hex'));
     if (!pair) return;
     this.#pendingChecks.delete(parsed.transactionId.toString('hex'));
+    pair.pendingTxid = undefined;
     pair.state = 'succeeded';
 
     if (this.role === 'controlling') {
