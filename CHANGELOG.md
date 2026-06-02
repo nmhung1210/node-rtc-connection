@@ -6,6 +6,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- Memory leaks on teardown and unbounded buffers (no public API change):
+  - **Data channels** are now released when they close. The
+    `DataChannelManager` dropped channels into a Map that only ever grew and
+    kept a permanent `SEND` listener per channel; closing a channel now emits an
+    internal event so the manager deletes the entry and detaches its listeners,
+    and `DataChannelManager.close()` removes its SCTP `message` listener and
+    clears all channels. `RTCDataChannel` also detaches its own internal
+    transport listeners on close. Fixes a real leak for apps that churn channels.
+  - **`RTCPeerConnection.close()`** now nulls the transport stack, removes its
+    listeners, and clears the pending-channel / local-candidate collections, so
+    closing a connection releases the ICE→DTLS→SCTP graph instead of pinning it
+    for the object's lifetime. `TransportStack.close()` tears down the
+    `DataChannelManager` (previously never closed).
+  - **SCTP** clears its retransmit, reassembly, and gap buffers on close/abort
+    (they hold full payload Buffers and can never drain once closed), and bounds
+    the out-of-order gap buffer to roughly the advertised receive window so a
+    stuck or malicious gap can't grow it without limit.
+  - **DTLS** frees the handshake transcript (which holds both DER certificates),
+    the last retransmit flight, the reassembly map, and spent key-exchange
+    material once the handshake completes (and on close/fail) — the bulk of the
+    per-connection memory, retained for the connection's lifetime before.
+  - **ICE** clears its pending-checks map when checks stop and retires a
+    candidate pair's previous transaction id on each retransmit, so unanswered
+    connectivity checks no longer accumulate stale entries every tick.
+
 ## [2.0.10] - 2026-06-02
 
 ### Fixed

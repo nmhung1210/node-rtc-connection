@@ -439,7 +439,8 @@ new RTCPeerConnection(configuration?)
 - `setRemoteDescription(description)` - Set remote SDP
 - `addIceCandidate(candidate)` - Add remote ICE candidate
 - `createDataChannel(label, options?)` - Create data channel
-- `close()` - Close the connection
+- `close()` - Close the connection and release its transport stack (ICE/DTLS/
+  SCTP sockets, timers, and buffers). Closes any open data channels first.
 
 #### Properties
 - `localDescription` - Local SDP description
@@ -453,7 +454,9 @@ new RTCPeerConnection(configuration?)
 
 #### Methods
 - `send(data)` - Send `string`, `ArrayBuffer`, a typed array / `ArrayBufferView`, or a Node `Buffer`
-- `close()` - Close the channel
+- `close()` - Close the channel. The transport drops its reference and the
+  channel detaches its internal listeners, so closed channels are reclaimed
+  (detach your own `'message'`/`'open'` handlers if you keep the reference).
 
 #### Properties
 - `label` - Channel label

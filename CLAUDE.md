@@ -172,6 +172,9 @@ not exercised by the client-side relay path).
   catches write-only state).
 - `RTCDataChannel`↔SCTP wiring is **event-driven**: the channel and the
   `DataChannelManager` communicate only through Symbol-keyed internal events on
-  the channel's own emitter (`RTCDataChannelEvents.SEND/RECEIVE/OPEN/SET_ID`),
-  never by reaching into `#` state. Symbols keep these off the public event
-  surface (`open`/`message`/`close`/`error`/`bufferedamountlow`).
+  the channel's own emitter (`RTCDataChannelEvents.SEND/RECEIVE/OPEN/SET_ID/
+  CLOSE`), never by reaching into `#` state. Symbols keep these off the public
+  event surface (`open`/`message`/`close`/`error`/`bufferedamountlow`). On
+  close the channel emits the internal `CLOSE` so the manager drops its entry
+  and detaches the `SEND` listener, then the channel detaches its own internal
+  listeners — closed channels are reclaimed rather than retained.
