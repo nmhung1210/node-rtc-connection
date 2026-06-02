@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.10] - 2026-06-02
+
 ### Fixed
 - DTLS client now interoperates with peers that skip HelloVerifyRequest (browsers
   do for data-channel DTLS). The first (cookieless) ClientHello is folded into
@@ -15,6 +17,70 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `DTLS fatal alert: 51` (decrypt_error); the OpenSSL `s_server` interop test
   masked it because OpenSSL sends HelloVerifyRequest by default. Covered by a new
   reversed-role (browser-offers, Node-answers) browser interop test.
+
+## [2.0.9] - 2026-06-02
+
+### Added
+- Configurable TLS certificate validation for TURN-over-TLS (`turns:`). Cert
+  validation is on by default; an option allows bypassing it for self-signed
+  relays. Documented alongside the `turns:` TLS/DTLS transport options.
+
+### Fixed
+- SCTP SACK gap-ack uint16 overflow on large TSN gaps.
+- Host process no longer crashes on a peer transport error (SCTP ABORT); the
+  error is surfaced rather than thrown unhandled.
+- Code-scanning fixes: avoid broken/weak cryptographic algorithms, use secure
+  randomness, and stop disabling certificate validation unconditionally.
+
+### Changed
+- Node-to-node example updated to use a TURN server; browser example now reads
+  TURN/STUN config from an env file.
+- Bumped rollup 4.54.0 → 4.61.0.
+
+## [2.0.8] - 2026-06-01
+
+Re-publish; no source changes.
+
+## [2.0.7] - 2026-06-01
+
+Re-publish; no source changes.
+
+## [2.0.6] - 2026-06-01
+
+### Added
+- TURN-over-DTLS and TURN-over-TLS (`turns:`) transport support, with end-to-end
+  tests and Docker-free unit tests.
+
+### Changed
+- Bumped picomatch 4.0.3 → 4.0.4.
+
+## [2.0.5] - 2026-05-31
+
+### Changed
+- Smaller published bundle: ES2022 native private fields, stripped comments, two
+  terser passes.
+- Publish from `dist/` with a generated minimal `dist/package.json`; exclude
+  `src` from the published package.
+
+## [2.0.4] - 2026-05-31
+
+### Fixed
+- Corrected the repository URL to `node-rtc-connection` so npm provenance
+  matches.
+
+## [2.0.3] - 2026-05-31
+
+Re-publish; no source changes.
+
+## [2.0.2] - 2026-05-31
+
+### Changed
+- Publish CI reuses the Test workflow as its gate; browser test is skipped when
+  Chromium is missing and Chromium is installed in publish CI.
+- README: use the `node-rtc-connection` name, add badges.
+
+### Added
+- Open-source community docs.
 
 ## [2.0.1] - 2026-05-31
 
