@@ -156,7 +156,11 @@ export class RTCPeerConnection extends EventEmitter {
     stack.on('iceconnected', () => this.#setConnectionState(RTCPeerConnectionState.CONNECTING));
     stack.on('sctpconnected', () => this.#setConnectionState(RTCPeerConnectionState.CONNECTED));
     stack.on('error', (e: unknown) => {
-      this.emit('error', e);
+      // A transport error (e.g. the peer sending an SCTP ABORT when it closes)
+      // must not crash the host process. Node throws if 'error' is emitted with
+      // no listener, so only emit when one is attached; the connection-state
+      // change to 'failed' is what callers observe in all cases.
+      if (this.listenerCount('error') > 0) this.emit('error', e);
       this.#setConnectionState(RTCPeerConnectionState.FAILED);
     });
     stack.on('close', () => this.#setConnectionState(RTCPeerConnectionState.DISCONNECTED));

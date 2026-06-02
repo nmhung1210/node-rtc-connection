@@ -435,22 +435,30 @@ class SctpAssociation extends EventEmitter {
   }
 
   #sendSack(): void {
-    // Build gap-ack blocks from buffered out-of-order TSNs.
+    // Build gap-ack blocks from buffered out-of-order TSNs. Per RFC 4960
+    // §3.3.4, each block's Start/End is the offset of the TSN from the
+    // Cumulative TSN Ack — a 16-bit field. Offsets are computed with
+    // serial-number wraparound; blocks whose offset exceeds 0xffff cannot be
+    // represented and are skipped rather than overflowing the field.
     const gapBlocks: Array<[number, number]> = [];
     if (this.#receivedOutOfOrder.size > 0) {
+      const cum = this.#peerCumulativeTSN as number;
+      const offset = (tsn: number) => (tsn - cum) >>> 0; // distance ahead of cumAck
+      const pushBlock = (start: number, end: number) => {
+        const s = offset(start);
+        const e = offset(end);
+        if (e <= 0xffff) gapBlocks.push([s, e]);
+      };
       const sorted = [...this.#receivedOutOfOrder.keys()].sort((a, b) => (snLt(a, b) ? -1 : 1));
-      const base = ((this.#peerCumulativeTSN as number) + 1) >>> 0;
       let start: number | null = null;
       let prev: number | null = null;
       for (const tsn of sorted) {
         if (start === null) { start = tsn; prev = tsn; continue; }
         if (tsn === (((prev as number) + 1) >>> 0)) { prev = tsn; continue; }
-        gapBlocks.push([((start - base) & 0xffff) + 1, (((prev as number) - base) & 0xffff) + 1]);
+        pushBlock(start, prev as number);
         start = tsn; prev = tsn;
       }
-      if (start !== null) {
-        gapBlocks.push([((start - base) & 0xffff) + 1, (((prev as number) - base) & 0xffff) + 1]);
-      }
+      if (start !== null) pushBlock(start, prev as number);
     }
 
     const body = C.encodeSackBody({

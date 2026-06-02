@@ -57,8 +57,8 @@ export class TransportStack extends EventEmitter {
     this.#dtlsStarted = false;
 
     this.ice.on('candidate', (c) => this.emit('candidate', c));
-    this.ice.on('error', (e) => this.emit('error', e));
-    this.ice.on('failed', () => this.emit('error', new Error('ICE failed')));
+    this.ice.on('error', (e) => this.#emitError(e));
+    this.ice.on('failed', () => this.#emitError(new Error('ICE failed')));
 
     // Inbound DTLS datagrams from the selected/learned path.
     this.ice.on('data', (msg: Buffer) => {
@@ -103,7 +103,7 @@ export class TransportStack extends EventEmitter {
       privateKey: this.#opts.privateKey,
       verifyFingerprint: this.#opts.verifyFingerprint,
       output: (datagram: Buffer) => {
-        try { this.ice.send(datagram); } catch (e) { this.emit('error', e); }
+        try { this.ice.send(datagram); } catch (e) { this.#emitError(e); }
       },
     });
 
@@ -114,7 +114,7 @@ export class TransportStack extends EventEmitter {
     this.dtls.on('data', (record: Buffer) => {
       if (this.sctp) this.sctp.receivePacket(record);
     });
-    this.dtls.on('error', (e) => this.emit('error', e));
+    this.dtls.on('error', (e) => this.#emitError(e));
     this.dtls.on('close', () => this.emit('close'));
 
     this.dtls.start();
@@ -125,9 +125,9 @@ export class TransportStack extends EventEmitter {
     const sctp = new SctpAssociation({ isClient });
     this.sctp = sctp;
     sctp.on('output', (pkt: Buffer) => {
-      try { if (this.dtls) this.dtls.send(pkt); } catch (e) { this.emit('error', e); }
+      try { if (this.dtls) this.dtls.send(pkt); } catch (e) { this.#emitError(e); }
     });
-    sctp.on('error', (e) => this.emit('error', e));
+    sctp.on('error', (e) => this.#emitError(e));
     sctp.on('close', () => this.emit('close'));
 
     this.dcm = new DataChannelManager(sctp, isClient);
@@ -151,6 +151,16 @@ export class TransportStack extends EventEmitter {
   acceptChannel(channel: RTCDataChannel, info: OpenRequestInfo): void {
     if (!this.dcm) throw new Error('SCTP not ready');
     this.dcm.acceptChannel(channel, info);
+  }
+
+  /**
+   * Emit a transport error without crashing the process. Node throws when
+   * 'error' is emitted with no listener attached, but a transport-level error
+   * (e.g. a peer SCTP ABORT on disconnect) must never be fatal — drop it if
+   * nobody is listening.
+   */
+  #emitError(err: unknown): void {
+    if (this.listenerCount('error') > 0) this.emit('error', err);
   }
 
   isReady(): boolean {
