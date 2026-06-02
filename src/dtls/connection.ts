@@ -958,8 +958,30 @@ class DtlsConnection extends EventEmitter {
     if (this.#handshakeDone) return;
     this.#handshakeDone = true;
     this.#clearRetransmit();
+    this.#releaseHandshakeState();
     this.state = STATE.CONNECTED;
     this.emit('connect');
+  }
+
+  /**
+   * Free handshake-only buffers once the connection is up. The transcript holds
+   * every handshake message (including both full DER certificates) and the last
+   * flight holds the cert flight — none of it is needed after CONNECTED (we
+   * don't support renegotiation), so dropping it reclaims the bulk of the
+   * per-connection memory. The record-layer keys live in #writeCipher/
+   * #readCipher and are untouched; #remoteCertDer is retained for
+   * getRemoteCertificate().
+   */
+  #releaseHandshakeState(): void {
+    this.#transcript = [];
+    this.#lastFlight = [];
+    this.#reassembly.clear();
+    this.#firstClientHello = null;
+    this.#clientRandom = null;
+    this.#serverRandom = null;
+    this.#masterSecret = null;
+    this.#ecdh = null;
+    this.#remoteEcdhePub = null;
   }
 
   // ---- Application data ----------------------------------------------------
@@ -989,6 +1011,7 @@ class DtlsConnection extends EventEmitter {
       // best-effort
     }
     this.#clearRetransmit();
+    this.#releaseHandshakeState();
     this.state = STATE.CLOSED;
     this.emit('close');
   }
@@ -996,6 +1019,7 @@ class DtlsConnection extends EventEmitter {
   #fail(err: Error): void {
     if (this.state === STATE.FAILED || this.state === STATE.CLOSED) return;
     this.#clearRetransmit();
+    this.#releaseHandshakeState();
     this.state = STATE.FAILED;
     this.emit('error', err);
   }

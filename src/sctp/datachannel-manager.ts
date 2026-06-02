@@ -31,6 +31,10 @@ interface ChannelInit {
 interface ChannelEntry {
   channel: RTCDataChannel;
   acked: boolean;
+  /** The SEND listener bound to this channel, kept so it can be detached. */
+  sender: (data: Buffer, isBinary: boolean) => void;
+  /** The CLOSE listener bound to this channel, kept so it can be detached. */
+  onClose: () => void;
 }
 
 /** Information surfaced on the 'open-request' event for an inbound channel. */
@@ -47,6 +51,7 @@ class DataChannelManager extends EventEmitter {
   #sctp: SctpAssociation;
   #channels: Map<number, ChannelEntry>; // streamId -> { channel, acked }
   #nextStreamId: number;
+  #onSctpMessageBound: (m: SctpMessage) => void;
 
   /**
    * @param {import('./association').SctpAssociation} association
@@ -58,7 +63,8 @@ class DataChannelManager extends EventEmitter {
     this.#channels = new Map(); // streamId -> { channel, acked }
     this.#nextStreamId = isDtlsClient ? 0 : 1;
 
-    this.#sctp.on('message', (m: SctpMessage) => this.#onSctpMessage(m));
+    this.#onSctpMessageBound = (m: SctpMessage) => this.#onSctpMessage(m);
+    this.#sctp.on('message', this.#onSctpMessageBound);
   }
 
   /**
@@ -72,8 +78,7 @@ class DataChannelManager extends EventEmitter {
       streamId = this.#allocateStreamId();
       channel.emit(RTCDataChannelEvents.SET_ID, streamId);
     }
-    this.#channels.set(streamId, { channel, acked: false });
-    this.#attachSender(channel, streamId, init);
+    this.#registerChannel(channel, streamId, false, init);
 
     if (!channel.negotiated) {
       const open = dcep.encodeOpen({
@@ -120,10 +125,13 @@ class DataChannelManager extends EventEmitter {
     return 0;
   }
 
-  /** Wire the channel's outbound SEND events -> SCTP DATA with the right PPID. */
-  #attachSender(channel: RTCDataChannel, streamId: number, init: ChannelInit): void {
+  /**
+   * Track a channel, wire its outbound SEND events -> SCTP DATA, and detach
+   * everything when it closes so a churned channel leaves nothing behind.
+   */
+  #registerChannel(channel: RTCDataChannel, streamId: number, acked: boolean, init: ChannelInit): void {
     const unordered = init.ordered === false;
-    channel.on(RTCDataChannelEvents.SEND, (data: Buffer, isBinary: boolean) => {
+    const sender = (data: Buffer, isBinary: boolean): void => {
       let ppid: number;
       if (isBinary) {
         ppid = data.length === 0 ? PPID.BINARY_EMPTY : PPID.BINARY;
@@ -133,7 +141,28 @@ class DataChannelManager extends EventEmitter {
       // EMPTY PPIDs still need one byte on the wire (RFC 8831 §6.6).
       const payload = data.length === 0 ? Buffer.from([0]) : data;
       this.#sctp.sendData(streamId, ppid, payload, { unordered });
-    });
+    };
+    const onClose = (): void => this.#removeChannel(streamId);
+    this.#channels.set(streamId, { channel, acked, sender, onClose });
+    channel.on(RTCDataChannelEvents.SEND, sender);
+    channel.on(RTCDataChannelEvents.CLOSE, onClose);
+  }
+
+  /** Drop a closed channel and detach its listeners. */
+  #removeChannel(streamId: number): void {
+    const entry = this.#channels.get(streamId);
+    if (!entry) return;
+    entry.channel.removeListener(RTCDataChannelEvents.SEND, entry.sender);
+    entry.channel.removeListener(RTCDataChannelEvents.CLOSE, entry.onClose);
+    this.#channels.delete(streamId);
+  }
+
+  /** Tear down the manager: detach the SCTP listener and drop all channels. */
+  close(): void {
+    this.#sctp.removeListener('message', this.#onSctpMessageBound);
+    for (const streamId of [...this.#channels.keys()]) {
+      this.#removeChannel(streamId);
+    }
   }
 
   #onSctpMessage(m: SctpMessage): void {
@@ -178,8 +207,7 @@ class DataChannelManager extends EventEmitter {
    */
   acceptChannel(channel: RTCDataChannel, info: OpenRequestInfo): void {
     channel.emit(RTCDataChannelEvents.SET_ID, info.streamId);
-    this.#channels.set(info.streamId, { channel, acked: true });
-    this.#attachSender(channel, info.streamId, { ordered: info.ordered });
+    this.#registerChannel(channel, info.streamId, true, { ordered: info.ordered });
     channel.emit(RTCDataChannelEvents.OPEN);
   }
 }

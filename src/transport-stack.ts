@@ -168,8 +168,12 @@ export class TransportStack extends EventEmitter {
   }
 
   close(): void {
+    // Tear down the DCM first so it detaches its SCTP 'message' listener and
+    // drops all channels before the association closes.
+    if (this.dcm) try { this.dcm.close(); } catch { /* best-effort */ }
     if (this.sctp) try { this.sctp.shutdown(); } catch { /* best-effort */ }
     if (this.dtls) try { this.dtls.close(); } catch { /* best-effort */ }
     if (this.ice) try { this.ice.close(); } catch { /* best-effort */ }
+    this.removeAllListeners();
   }
 }
