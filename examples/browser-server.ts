@@ -21,6 +21,7 @@
  *   TURN_URL                 turn:127.0.0.1:3478  (turns:host:5349 for TLS/DTLS)
  *   TURN_USER                testuser
  *   TURN_PASS                testpass
+ *   TURN_REJECT_UNAUTHORIZED true | false  (false = accept self-signed TLS cert)
  *   STUN_URL                 stun:stun.cloudflare.com:3478   (browser side)
  *   ICE_TRANSPORT_POLICY     all | relay   (Node side)
  *   PORT                     3000
@@ -65,12 +66,15 @@ const CLIENT_HTML = fs.readFileSync(path.join(__dirname, 'browser-client.html'),
 
 const ICE_TRANSPORT_POLICY = process.env.ICE_TRANSPORT_POLICY === 'relay' ? 'relay' : 'all';
 
-// Node side: TURN (relay). turns:host:5349 for TLS/DTLS.
+// Node side: TURN (relay). turns:host:5349 for TLS/DTLS. For a TURN-over-TLS
+// server with a self-signed cert, set TURN_REJECT_UNAUTHORIZED=false to skip
+// certificate validation (insecure — local/test servers only).
 const NODE_ICE_SERVERS = [
   {
     urls: process.env.TURN_URL || 'turn:127.0.0.1:3478',
     username: process.env.TURN_USER || 'testuser',
     credential: process.env.TURN_PASS || 'testpass',
+    rejectUnauthorized: process.env.TURN_REJECT_UNAUTHORIZED !== 'false',
   },
 ];
 

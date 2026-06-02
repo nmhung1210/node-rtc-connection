@@ -86,6 +86,11 @@ interface IceServer {
   urls: string | string[];
   username?: string;
   credential?: string;
+  /**
+   * Validate the server's TLS certificate for TURN-over-TLS (turns: + tcp).
+   * Defaults to true; set false to accept self-signed certs (insecure).
+   */
+  rejectUnauthorized?: boolean;
 }
 
 /** Options accepted by {@link IceAgent#gather}. */
@@ -382,6 +387,7 @@ class IceAgent extends EventEmitter {
       transport: parsed.transport,
       // turns: is encrypted — DTLS over UDP, or TLS over TCP (?transport=tcp).
       secure: parsed.scheme === 'turns',
+      rejectUnauthorized: server.rejectUnauthorized,
     });
     const alloc = await turn.allocateRelay(600) as { relayedAddress: string; relayedPort: number };
     const transport = new RelayTransport(turn);

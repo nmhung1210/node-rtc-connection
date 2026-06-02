@@ -39,10 +39,17 @@ const SKIP = process.env.SKIP_INTEGRATION === '1';
 const IMAGE = process.env.COTURN_DTLS_IMAGE || 'nmhung1210/coturn-dtls:latest';
 const CONTAINER = 'nodertc-test-coturn-dtls';
 
-/** ICE server list for a given relay transport ('udp' → DTLS, 'tcp' → TLS). */
+/**
+ * ICE server list for a given relay transport ('udp' → DTLS, 'tcp' → TLS).
+ * The test coturn uses a self-signed cert, so TLS validation is disabled.
+ */
 function iceServers(transport: 'udp' | 'tcp') {
   const suffix = transport === 'tcp' ? '?transport=tcp' : '';
-  return [{ urls: `turns:${TURNS_HOST}:${TURNS_PORT}${suffix}`, username: TURN_USER, credential: TURN_PASS }];
+  return [{
+    urls: `turns:${TURNS_HOST}:${TURNS_PORT}${suffix}`,
+    username: TURN_USER, credential: TURN_PASS,
+    rejectUnauthorized: false,
+  }];
 }
 
 /** Probe: can we allocate a relay over an encrypted link to the server? */
@@ -51,6 +58,7 @@ function turnsReachable(transport: 'udp' | 'tcp' = 'udp', timeoutMs = 3000) {
     const c = new STUNClient({
       server: TURNS_HOST, port: TURNS_PORT,
       username: TURN_USER, credential: TURN_PASS, secure: true, transport,
+      rejectUnauthorized: false, // self-signed test cert
     });
     let done = false;
     const finish = (ok: boolean) => { if (done) return; done = true; try { c.close(); } catch (_) {} resolve(ok); };

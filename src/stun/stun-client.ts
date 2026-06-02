@@ -87,6 +87,12 @@ interface STUNClientOptions {
   transport?: string;
   /** Wrap the link to the server in DTLS (TURN-over-DTLS, the `turns:` scheme) */
   secure?: boolean;
+  /**
+   * Validate the TURN server's TLS certificate (TURN-over-TLS only). Defaults
+   * to `true`. Set `false` to accept self-signed / otherwise unverifiable
+   * server certificates — insecure, intended for local/test servers only.
+   */
+  rejectUnauthorized?: boolean;
   /** Additional query parameters from URL */
   params?: Record<string, unknown>;
 }
@@ -194,6 +200,7 @@ class STUNClient extends EventEmitter {
   #nonce: string | null;
   #secure: boolean;
   #transport: string;
+  #rejectUnauthorized: boolean;
   #dtls: DtlsConnection | null;
   #tls: tls.TLSSocket | null;
   #streamBuffer: Buffer;
@@ -221,6 +228,9 @@ class STUNClient extends EventEmitter {
     this.#nonce = null;
     this.#secure = options.secure === true;
     this.#transport = (options.transport || 'udp').toLowerCase();
+    // Validate the server cert by default; callers opt out for self-signed
+    // (e.g. local/test) TURN servers.
+    this.#rejectUnauthorized = options.rejectUnauthorized !== false;
     this.#dtls = null;
     this.#tls = null;
     this.#streamBuffer = Buffer.alloc(0);
@@ -285,16 +295,15 @@ class STUNClient extends EventEmitter {
 
   /**
    * Open a TLS connection to the TURN server and wire its byte stream into the
-   * STUN message handler. The server does not validate a client certificate,
-   * and it is self-signed, so we disable peer verification (an encrypted
-   * channel to the TURN server is the only goal — relayed payloads carry their
-   * own end-to-end DTLS).
+   * STUN message handler. The server certificate is validated by default;
+   * pass `rejectUnauthorized: false` to accept self-signed certs (insecure,
+   * for local/test servers).
    * @private
    */
   #connectTls(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const socket = tls.connect(
-        { host: this.#server, port: this.#port, rejectUnauthorized: false },
+        { host: this.#server, port: this.#port, rejectUnauthorized: this.#rejectUnauthorized },
         () => resolve()
       );
       this.#tls = socket;

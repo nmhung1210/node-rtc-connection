@@ -17,7 +17,7 @@ ships type declarations.
 - ✅ **Browser interoperable**: Verified end-to-end against Chromium (Playwright) and OpenSSL
 - ✅ **Real protocols, not stubs**: Genuine DTLS 1.2 handshake + SCTP association over UDP
 - ✅ **ICE** (RFC 8445): connectivity checks with MESSAGE-INTEGRITY, host/srflx/relay candidates
-- ✅ **STUN/TURN** (RFC 5389/5766): NAT traversal and relay for restrictive networks
+- ✅ **STUN/TURN** (RFC 5389/5766): NAT traversal and relay for restrictive networks, including encrypted `turns:` (TURN-over-DTLS and TURN-over-TLS)
 - ✅ **DTLS 1.2** (RFC 6347): `ECDHE_ECDSA_AES128_GCM`, mutual auth, self-signed ECDSA certs
 - ✅ **SCTP + DCEP** (RFC 8831/8832): ordered/unordered data channels, string + binary
 - ✅ **W3C API**: familiar `RTCPeerConnection` / `RTCDataChannel` surface
@@ -211,14 +211,33 @@ const config = {
 };
 ```
 
-**URL format:** `stun:host[:port]` and `turn:host[:port][?transport=udp&...]`.
+**URL format:** `stun:host[:port]` and `turn(s):host[:port][?transport=udp|tcp&...]`.
 The default port is `3478` (`5349` for the `turns:` scheme).
 
-> **Transport support:** connectivity currently uses **UDP only**. STUN
-> reflexive and TURN relay candidates are gathered over UDP; `transport=tcp`
-> and the `turns:` (TLS) scheme are parsed but not yet used for the data path,
-> so list a UDP TURN URL for the relay to work. Unknown query parameters are
-> preserved and ignored.
+> **Transport support:** the `turns:` scheme is encrypted end-to-end to the TURN
+> server — **DTLS** over UDP (`turns:host:5349`) or **TLS** over TCP
+> (`turns:host:5349?transport=tcp`). Plain `turn:` (and STUN srflx) use UDP.
+> Unknown query parameters are preserved and ignored.
+
+#### TLS certificate validation (`turns:` over TCP)
+
+For TURN-over-TLS, the server's certificate is validated by default. To accept a
+self-signed or otherwise unverifiable certificate (e.g. a local/test TURN
+server), set `rejectUnauthorized: false` on that ICE server entry — this is
+insecure and intended for development only:
+
+```javascript
+const config = {
+  iceServers: [
+    {
+      urls: 'turns:turn.example.com:5349?transport=tcp',
+      username: 'user',
+      credential: 'pass',
+      rejectUnauthorized: false // accept self-signed cert (insecure)
+    }
+  ]
+};
+```
 
 ## Data Channel API
 
@@ -461,9 +480,23 @@ For production use, it's recommended to run your own TURN server using [coturn](
 # Install coturn
 apt-get install coturn
 
-# Basic configuration
+# Basic configuration (plain TURN over UDP)
 turnserver -v -L 0.0.0.0 -a -u user:password -r realm
 ```
+
+For the encrypted `turns:` scheme, give coturn an **ECDSA** certificate (required
+for the `ECDHE_ECDSA` cipher suite this library negotiates) and enable the
+TLS/DTLS listener:
+
+```bash
+turnserver -v -L 0.0.0.0 -a -u user:password -r realm \
+  --tls-listening-port=5349 \
+  --cert=/path/to/cert.pem --pkey=/path/to/key.pem
+```
+
+Then connect with `turns:host:5349` (DTLS) or `turns:host:5349?transport=tcp`
+(TLS). For a self-signed cert, set `rejectUnauthorized: false` on the ICE server
+entry (see [TLS certificate validation](#tls-certificate-validation-turns-over-tcp)).
 
 ## Development
 

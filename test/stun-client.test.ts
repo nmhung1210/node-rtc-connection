@@ -69,7 +69,7 @@ describe('STUNClient TLS-over-TCP transport', () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     const port = (server.address() as net.AddressInfo).port;
 
-    const client = new STUNClient({ server: '127.0.0.1', port, secure: true, transport: 'tcp' });
+    const client = new STUNClient({ server: '127.0.0.1', port, secure: true, transport: 'tcp', rejectUnauthorized: false });
     try {
       const res: any = await client.getReflexiveAddress();
       assert.strictEqual(res.address, '203.0.113.7');
@@ -93,7 +93,7 @@ describe('STUNClient TLS-over-TCP transport', () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     const port = (server.address() as net.AddressInfo).port;
 
-    const client = new STUNClient({ server: '127.0.0.1', port, secure: true, transport: 'tcp' });
+    const client = new STUNClient({ server: '127.0.0.1', port, secure: true, transport: 'tcp', rejectUnauthorized: false });
     try {
       const res: any = await client.getReflexiveAddress();
       assert.strictEqual(res.address, '198.51.100.9');
@@ -117,11 +117,47 @@ describe('STUNClient TLS-over-TCP transport', () => {
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     const port = (server.address() as net.AddressInfo).port;
 
-    const client = new STUNClient({ server: '127.0.0.1', port, secure: true, transport: 'tcp' });
+    const client = new STUNClient({ server: '127.0.0.1', port, secure: true, transport: 'tcp', rejectUnauthorized: false });
     try {
       const res: any = await client.getReflexiveAddress();
       assert.strictEqual(res.address, '192.0.2.5');
       assert.strictEqual(res.port, 33333);
+    } finally {
+      client.close();
+      server.close();
+    }
+  });
+
+  it('rejects a self-signed server certificate by default', async () => {
+    const { key, cert } = selfSignedPem();
+    const server = tls.createServer({ key, cert }, (socket) => {
+      socket.on('data', (req: Buffer) => socket.write(bindingResponse(req.subarray(8, 20), '203.0.113.7', 51000)));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as net.AddressInfo).port;
+
+    // No rejectUnauthorized → defaults to true → the self-signed cert is rejected.
+    const client = new STUNClient({ server: '127.0.0.1', port, secure: true, transport: 'tcp' });
+    try {
+      await assert.rejects(client.getReflexiveAddress(), /self.signed|certificate/i);
+    } finally {
+      client.close();
+      server.close();
+    }
+  });
+
+  it('accepts a self-signed server certificate when rejectUnauthorized is false', async () => {
+    const { key, cert } = selfSignedPem();
+    const server = tls.createServer({ key, cert }, (socket) => {
+      socket.on('data', (req: Buffer) => socket.write(bindingResponse(req.subarray(8, 20), '203.0.113.7', 51000)));
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as net.AddressInfo).port;
+
+    const client = new STUNClient({ server: '127.0.0.1', port, secure: true, transport: 'tcp', rejectUnauthorized: false });
+    try {
+      const res: any = await client.getReflexiveAddress();
+      assert.strictEqual(res.address, '203.0.113.7');
     } finally {
       client.close();
       server.close();
