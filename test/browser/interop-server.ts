@@ -217,6 +217,153 @@ function renderPage(browserConfig: any) {
 </script></body></html>`;
 }
 
+/**
+ * Reversed-role harness: the BROWSER is the offerer and owns the data channel;
+ * our Node peer ANSWERS and echoes. This exercises node as the DTLS *client*
+ * against a browser DTLS server — the path that regressed with
+ * `DTLS fatal alert: 51` when the server skips HelloVerifyRequest.
+ *
+ * Same payload set and byte-for-byte validation as {@link startServer}: the
+ * browser sends each payload, Node echoes it verbatim, the browser compares.
+ */
+export function startAnswererServer(opts: any) {
+  const onResult = typeof opts === 'function' ? opts : opts.onResult;
+  const nodeConfig = (opts && opts.nodeConfig) || { iceServers: [] };
+  const browserConfig = (opts && opts.browserConfig) || { iceServers: [] };
+  const port = (opts && opts.port) || 0;
+
+  const pc: any = new RTCPeerConnection(nodeConfig);
+
+  // Node receives the channel (browser created it) and echoes every message.
+  pc.on('datachannel', (e: any) => {
+    const ch = e.channel;
+    ch.binaryType = 'arraybuffer';
+    const announce = () => onResult({ event: 'node-channel-open', label: ch.label });
+    ch.on('open', announce);
+    if (ch.readyState === 'open') announce(); // may already be open on the answerer
+    ch.on('message', (m: any) => {
+      if (typeof m.data === 'string') ch.send(m.data);
+      else ch.send(Buffer.isBuffer(m.data) ? m.data : Buffer.from(m.data));
+    });
+  });
+  pc.on('connectionstatechange', () => onResult({ event: 'node-state', state: pc.connectionState }));
+  pc.on('error', (err: any) => onResult({ event: 'node-error', error: err?.message ?? String(err) }));
+
+  let answerPromise: Promise<any> | null = null;
+  async function answerWithCandidates(offer: any) {
+    const candidates: any[] = [];
+    const done = new Promise<void>((resolve) => {
+      pc.on('icecandidate', (ev: any) => { if (ev.candidate) candidates.push(ev.candidate); else resolve(); });
+    });
+    await pc.setRemoteDescription(offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await done;
+    return { type: 'answer', sdp: withCandidates(pc.localDescription.sdp, candidates) };
+  }
+
+  const cors = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+  };
+
+  const server = http.createServer(async (req, res) => {
+    if (req.method === 'OPTIONS') { res.writeHead(204, cors); res.end(); return; }
+    if (req.url === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html', ...cors });
+      res.end(renderAnswererPage(browserConfig));
+      return;
+    }
+    if (req.url === '/offer' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', async () => {
+        try {
+          if (!answerPromise) answerPromise = answerWithCandidates(JSON.parse(body));
+          res.writeHead(200, { 'Content-Type': 'application/json', ...cors });
+          res.end(JSON.stringify(await answerPromise));
+        } catch (err: any) {
+          onResult({ event: 'node-error', error: err.message });
+          res.writeHead(500, cors); res.end(JSON.stringify({ error: err.message }));
+        }
+      });
+      return;
+    }
+    if (req.url === '/result' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      req.on('end', () => { try { onResult(JSON.parse(body)); } catch (_) {} res.writeHead(200, cors); res.end('{}'); });
+      return;
+    }
+    res.writeHead(404, cors); res.end('not found');
+  });
+
+  return new Promise((resolve) => {
+    server.listen(port, '127.0.0.1', () => {
+      resolve({ server, pc, port: (server.address() as any).port });
+    });
+  });
+}
+
+/**
+ * Browser-side page for the reversed roles: a native offerer that owns the data
+ * channel, sends each payload, and validates Node's echo byte-for-byte.
+ */
+function renderAnswererPage(browserConfig: any) {
+  const cfg = JSON.stringify(browserConfig);
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>interop-answerer</title></head>
+<body><script>
+(async () => {
+  const report = (o) => fetch('/result', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)});
+  // Payloads mirror buildPayloads() on the Node side.
+  const big = new Uint8Array(16384); for (let i=0;i<big.length;i++) big[i]=i&0xff;
+  const payloads = [
+    { id:'ascii', kind:'string', value:'hello-from-node' },
+    { id:'unicode', kind:'string', value:'héllo 世界 🌐   end' },
+    { id:'binary-small', kind:'binary', value:new Uint8Array([0,1,2,254,255,128,42,0]) },
+    { id:'binary-large', kind:'binary', value:big },
+    { id:'string-large', kind:'string', value:'x'.repeat(10240) },
+  ];
+  function eq(a,b){ if(a.length!==b.length) return false; for(let i=0;i<a.length;i++) if(a[i]!==b[i]) return false; return true; }
+  try {
+    const pc = new RTCPeerConnection(${cfg});
+    pc.onconnectionstatechange = () => report({event:'browser-state', state: pc.connectionState});
+    const ch = pc.createDataChannel('interop', { ordered: true });
+    ch.binaryType = 'arraybuffer';
+    let index = -1;
+    const sendNext = () => {
+      index += 1;
+      if (index >= payloads.length) { report({event:'done'}); return; }
+      const p = payloads[index];
+      ch.send(p.kind === 'string' ? p.value : p.value);
+    };
+    ch.onopen = () => { report({event:'channel-open'}); sendNext(); };
+    ch.onmessage = (m) => {
+      const expected = payloads[index];
+      let ok=false, detail='';
+      if (!expected) { detail='unexpected message'; }
+      else if (expected.kind==='string') { ok = typeof m.data==='string' && m.data===expected.value; detail = ok?'':'string mismatch'; }
+      else { const got = new Uint8Array(m.data); ok = eq(got, expected.value); detail = ok?'':('binary mismatch '+got.length+'/'+expected.value.length); }
+      report({event:'echo', id: expected?expected.id:'?', ok, detail});
+      if (ok) sendNext(); else report({event:'done'});
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await new Promise((res) => {
+      if (pc.iceGatheringState === 'complete') return res();
+      pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') res(); };
+      setTimeout(res, 5000);
+    });
+    const answer = await (await fetch('/offer', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(pc.localDescription)})).json();
+    await pc.setRemoteDescription(answer);
+    report({event:'browser-answer-applied'});
+  } catch (e) { report({event:'browser-error', error: String(e)}); }
+})();
+</script></body></html>`;
+}
+
 // Standalone manual run.
 if (require.main === module) {
   (startServer((r: any) => console.log('[result]', JSON.stringify(r))) as Promise<any>).then(({ port }) => {

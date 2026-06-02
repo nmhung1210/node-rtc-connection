@@ -19,7 +19,7 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
-import { startServer, buildPayloads } from './browser/interop-server';
+import { startServer, startAnswererServer, buildPayloads } from './browser/interop-server';
 import STUNClient from '../src/stun/stun-client';
 
 const SKIP = process.env.SKIP_INTEGRATION === '1';
@@ -90,6 +90,38 @@ async function runScenario(browser: any, { nodeConfig, browserConfig }: any) {
   }
 }
 
+/**
+ * Drive the reversed-role scenario: the browser offers and owns the channel,
+ * our Node peer answers (DTLS client). Returns the collected harness events.
+ */
+async function runAnswererScenario(browser: any, { nodeConfig, browserConfig }: any) {
+  const results: any[] = [];
+  const { server, pc, port } = await startAnswererServer({
+    onResult: (r: any) => results.push(r),
+    nodeConfig,
+    browserConfig,
+  }) as any;
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  try {
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'domcontentloaded' });
+    const isDone = () =>
+      results.some((r) => r.event === 'done') ||
+      results.some((r) => r.event === 'browser-error') ||
+      results.some((r) => r.event === 'node-error');
+    const deadline = Date.now() + 40000;
+    while (Date.now() < deadline && !isDone()) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return results;
+  } finally {
+    await context.close();
+    try { pc.close(); } catch (_) {}
+    try { server.close(); } catch (_) {}
+  }
+}
+
 /** Assert every payload echoed back correctly. */
 function assertAllEchoed(results: any[]) {
   const browserError = results.find((r) => r.event === 'browser-error');
@@ -104,6 +136,14 @@ function assertAllEchoed(results: any[]) {
     assert.ok(e.ok, `payload "${id}" did not round-trip: ${e.detail}`);
   }
   assert.ok(results.some((r) => r.event === 'done'), 'sequence did not complete');
+}
+
+/** Like assertAllEchoed, but also fail on a Node-side DTLS/transport error. */
+function assertAllEchoedAnswerer(results: any[]) {
+  const nodeError = results.find((r) => r.event === 'node-error');
+  assert.ok(!nodeError, `node error: ${nodeError && nodeError.error}`);
+  assert.ok(results.some((r) => r.event === 'node-channel-open'), 'node never received the channel');
+  assertAllEchoed(results);
 }
 
 describe('Browser interop (Playwright + Chromium)', { skip: SKIP || !chromium }, () => {
@@ -142,5 +182,18 @@ describe('Browser interop (Playwright + Chromium)', { skip: SKIP || !chromium },
       browserConfig: { iceServers: ICE_SERVERS, iceTransportPolicy: 'relay' },
     });
     assertAllEchoed(results);
+  });
+
+  // Reversed roles: the browser offers and the Node peer answers (DTLS client).
+  // Browsers skip HelloVerifyRequest for data-channel DTLS, so this regresses to
+  // `DTLS fatal alert: 51` unless the client folds its first ClientHello into
+  // the transcript (RFC 6347 §4.2.1).
+  it('transfers data when Node is the answerer (no HelloVerifyRequest)', async (t) => {
+    if (!browser) return t.skip(`Chromium unavailable: ${launchError?.message ?? 'not launched'}`);
+    const results = await runAnswererScenario(browser, {
+      nodeConfig: { iceServers: [] },
+      browserConfig: { iceServers: [] },
+    });
+    assertAllEchoedAnswerer(results);
   });
 });
