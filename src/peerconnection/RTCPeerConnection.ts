@@ -401,7 +401,16 @@ export class RTCPeerConnection extends EventEmitter {
     for (const channel of this.#channels) {
       try { channel.close(); } catch (_) { /* best-effort */ }
     }
-    if (this.#stack) try { this.#stack.close(); } catch (_) { /* best-effort */ }
+    if (this.#stack) {
+      try { this.#stack.close(); } catch (_) { /* best-effort */ }
+      try { this.#stack.removeAllListeners(); } catch (_) { /* best-effort */ }
+      this.#stack = null;
+    }
+    // Drop retained references so closing the connection releases the stack and
+    // channel graph rather than pinning it for the lifetime of the object.
+    this.#channels.clear();
+    this.#pendingChannels = [];
+    this.#localCandidates = [];
     this.#setConnectionState(RTCPeerConnectionState.CLOSED);
     this.emit('signalingstatechange');
   }
