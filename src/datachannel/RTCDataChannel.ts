@@ -35,12 +35,16 @@ type RTCDataChannelBinaryType = 'arraybuffer' | 'blob';
  *   - RECEIVE transport → channel: inbound frame  `(data: Buffer, isBinary: boolean)`
  *   - OPEN    transport → channel: transition the channel to 'open'
  *   - SET_ID  transport → channel: assign the SCTP stream id `(id: number)`
+ *   - CLOSE   channel → transport: the channel reached 'closed'; the manager
+ *             drops its entry and detaches its SEND handler so a churned
+ *             channel doesn't leak.
  */
 export const RTCDataChannelEvents = Object.freeze({
   SEND: Symbol('rtcdatachannel:send'),
   RECEIVE: Symbol('rtcdatachannel:receive'),
   OPEN: Symbol('rtcdatachannel:open'),
   SET_ID: Symbol('rtcdatachannel:setId'),
+  CLOSE: Symbol('rtcdatachannel:close'),
 });
 
 /**
@@ -105,6 +109,11 @@ export class RTCDataChannel extends EventEmitter {
   #binaryType: RTCDataChannelBinaryType;
   /** Whether a transport is listening for outbound SEND events. */
   #connected: boolean;
+  // Internal (Symbol-keyed) transport listeners, retained so they can be
+  // detached when the channel closes.
+  #onSetId: (id: number) => void;
+  #onOpenInternal: () => void;
+  #onReceiveInternal: (data: Buffer, isBinary: boolean) => void;
 
   /**
    * Create an RTCDataChannel instance.
@@ -134,15 +143,19 @@ export class RTCDataChannel extends EventEmitter {
     this.#binaryType = 'arraybuffer'; // or 'blob'
     this.#connected = false;
 
-    // Transport drives the channel via internal (Symbol-keyed) events.
-    this.on(RTCDataChannelEvents.SET_ID, (id: number) => { this.#id = id; });
-    this.on(RTCDataChannelEvents.OPEN, () => {
+    // Transport drives the channel via internal (Symbol-keyed) events. Keep
+    // references so they can be detached on close (see #teardownInternal).
+    this.#onSetId = (id: number) => { this.#id = id; };
+    this.#onOpenInternal = () => {
       this.#connected = true;
       this.#setState(RTCDataChannelState.OPEN as RTCDataChannelReadyState);
-    });
-    this.on(RTCDataChannelEvents.RECEIVE, (data: Buffer, isBinary: boolean) => {
+    };
+    this.#onReceiveInternal = (data: Buffer, isBinary: boolean) => {
       this.#receiveMessage(data, isBinary);
-    });
+    };
+    this.on(RTCDataChannelEvents.SET_ID, this.#onSetId);
+    this.on(RTCDataChannelEvents.OPEN, this.#onOpenInternal);
+    this.on(RTCDataChannelEvents.RECEIVE, this.#onReceiveInternal);
   }
 
   /**
@@ -363,7 +376,19 @@ export class RTCDataChannel extends EventEmitter {
       this.emit('closing');
     } else if (newState === RTCDataChannelState.CLOSED) {
       this.emit('close');
+      // Let the transport drop its reference + SEND handler, then detach the
+      // transport-driven internal listeners so a closed channel doesn't pin
+      // itself or keep receiving frames.
+      this.emit(RTCDataChannelEvents.CLOSE);
+      this.#teardownInternal();
     }
+  }
+
+  /** Detach the internal (Symbol-keyed) transport listeners. */
+  #teardownInternal(): void {
+    this.removeListener(RTCDataChannelEvents.SET_ID, this.#onSetId);
+    this.removeListener(RTCDataChannelEvents.OPEN, this.#onOpenInternal);
+    this.removeListener(RTCDataChannelEvents.RECEIVE, this.#onReceiveInternal);
   }
 
   /**
