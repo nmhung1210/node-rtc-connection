@@ -25,6 +25,12 @@ import { applyChecksum, verifyChecksum } from './crc32c';
 const SCTP_PORT = 5000; // WebRTC uses 5000 on both ends
 const DEFAULT_RWND = 1024 * 1024;
 const MAX_PAYLOAD = 1200; // fragment user messages above this (fits DTLS/MTU)
+// Cap on out-of-order chunks buffered behind a gap. We advertise a fixed rwnd
+// but never shrink it, so without this a peer that withholds one TSN and floods
+// higher ones could grow #receivedOutOfOrder without bound. Sized to roughly
+// the advertised window's worth of full-MTU fragments; excess is dropped and
+// (for reliable streams) retransmitted by the peer once the gap fills.
+const MAX_OOO_CHUNKS = Math.ceil(DEFAULT_RWND / MAX_PAYLOAD);
 const RTO_INITIAL = 500;
 const RTO_MAX = 5000;
 
@@ -401,8 +407,11 @@ class SctpAssociation extends EventEmitter {
         next = (this.#peerCumulativeTSN + 1) >>> 0;
       }
     } else {
-      // Out of order: buffer for later (gap).
-      if (!this.#receivedOutOfOrder.has(data.tsn)) {
+      // Out of order: buffer for later (gap). Drop if we've already buffered a
+      // full window's worth — the peer retransmits reliable chunks once the gap
+      // is filled, and this bounds memory against a stuck/malicious gap.
+      if (!this.#receivedOutOfOrder.has(data.tsn) &&
+          this.#receivedOutOfOrder.size < MAX_OOO_CHUNKS) {
         this.#receivedOutOfOrder.set(data.tsn, data);
       }
     }
@@ -503,9 +512,21 @@ class SctpAssociation extends EventEmitter {
     this.#clearInitTimer();
     if (this.state !== STATE.CLOSED) {
       this.state = STATE.CLOSED;
+      this.#releaseBuffers();
       this.emit('error', new Error(reason || 'SCTP abort'));
       this.emit('close');
     }
+  }
+
+  /**
+   * Release the per-association buffers so a closed association doesn't pin
+   * memory. The retransmit/reassembly/gap maps hold full payload Buffers; once
+   * the association is CLOSED they can never be drained, so drop them.
+   */
+  #releaseBuffers(): void {
+    this.#sentQueue.clear();
+    this.#receivedOutOfOrder.clear();
+    this.#fragments.clear();
   }
 
   /** Gracefully close the association. */
@@ -524,6 +545,7 @@ class SctpAssociation extends EventEmitter {
     this.#clearInitTimer();
     if (this.state === STATE.CLOSED) return;
     this.state = STATE.CLOSED;
+    this.#releaseBuffers();
     this.emit('close');
   }
 }
