@@ -75,11 +75,20 @@
     async function connect() {
       add('Requesting offer from Node.js server…', 'sys');
 
+      // 0. Fetch the ICE config (TURN server + transport policy) from the server
+      //    so the browser answerer uses the same relay as the Node offerer.
+      const config = await (await fetch('/config')).json();
+      add(`ICE: ${config.iceServers?.[0]?.urls || 'none'} (policy: ${config.iceTransportPolicy})`, 'sys');
+
       // 1. Fetch the offer (Node is the offerer and owns the data channel).
       const { sessionId, offer } = await (await fetch('/offer')).json();
 
-      // 2. Native browser RTCPeerConnection acts as the answerer.
-      const pc = new RTCPeerConnection({ iceServers: [] });
+      // 2. Native browser RTCPeerConnection acts as the answerer, using the
+      //    server-provided ICE configuration.
+      const pc = new RTCPeerConnection({
+        iceServers: config.iceServers || [],
+        iceTransportPolicy: config.iceTransportPolicy || 'all',
+      });
 
       pc.onconnectionstatechange = () =>
         setState('conn', pc.connectionState, pc.connectionState === 'connected');
