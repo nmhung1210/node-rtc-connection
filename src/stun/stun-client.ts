@@ -740,11 +740,11 @@ class STUNClient extends EventEmitter {
 
       const tempMessage = Buffer.concat([tempHeader, attributesBuffer]);
 
-      // For TURN, compute key as MD5(username:realm:password) per RFC 5766
+      // For TURN, compute key from username:realm:password using SHA-256
       let key: string | Buffer = this.#credential;
       if (this.#username && this.#realm) {
         const keyString = `${this.#username}:${this.#realm}:${this.#credential}`;
-        key = crypto.createHash('md5').update(keyString).digest();
+        key = crypto.createHash('sha256').update(keyString).digest();
       }
 
       const hmac = crypto.createHmac('sha256', key);
